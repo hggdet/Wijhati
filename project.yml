@@ -1,0 +1,41 @@
+name: Wijhati
+options:
+  bundleIdPrefix: com.hggdet
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+targets:
+  Wijhati:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: وجهتي
+        CFBundleName: Wijhati
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocationWhenInUseUsageDescription: يحتاج وجهتي إلى موقعك لعرضه على الخريطة وحساب المسارات إليك ومنك.
+        NSLocationAlwaysAndWhenInUseUsageDescription: يحتاج وجهتي إلى موقعك في الخلفية لتنبيهات القرب وإرشاد الملاحة.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hggdet.wijhati
+        PRODUCT_NAME: Wijhati
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Manual
+schemes:
+  Wijhati:
+    build:
+      targets:
+        Wijhati: all
+    run:
+      config: Debug
+    archive:
+      config: Release
