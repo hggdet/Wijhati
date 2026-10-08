@@ -46,7 +46,7 @@ struct AssistantView: View {
                                                 dismiss()
                                             } label: {
                                                 HStack(spacing: 8) {
-                                                    Image(systemName: "mappin.circle.fill").foregroundStyle(Color(white: 0.05))
+                                                    Image(systemName: "mappin.circle.fill").foregroundStyle(adaptiveInk)
                                                     VStack(alignment: .leading, spacing: 1) {
                                                         Text(place.name).font(.caption.weight(.semibold)).foregroundStyle(.primary)
                                                         if !place.address.isEmpty {
