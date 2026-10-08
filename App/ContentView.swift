@@ -25,8 +25,14 @@ struct ContentView: View {
     @StateObject private var locationService = LocationService()
     @StateObject private var store = PlacesStore()
     @StateObject private var voice = VoiceGuide()
+    @StateObject private var reportsStore = ReportsStore()
+    @StateObject private var offlineManager = OfflineManager()
 
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
+    @AppStorage("wijhati.appearance") private var appearance = "auto"
+    @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
+    @AppStorage("wijhati.notifReports") private var notifReports = true
+    @AppStorage("wijhati.notifSaved") private var notifSaved = false
 
     @State private var query = ""
     @State private var suggestions: [Place] = []
@@ -59,12 +65,40 @@ struct ContentView: View {
     @State private var showWeatherDetail = false
     @State private var elevations: [Double] = []
     @State private var shareItem: SharePayload?
+    @State private var showReportSheet = false
+    @State private var reportSelectedID: String?
+    @State private var reportThanks = false
+    @State private var alertCooldown: [String: Date] = [:]
+
+    private var allPins: [Place] {
+        pins + reportsStore.activeReports.map { $0.asPlace() }
+    }
+    private var schemeOverride: ColorScheme? {
+        if appearance == "dark" { return .dark }
+        if appearance == "light" { return .light }
+        return nil
+    }
 
     private var selectedRoute: RouteData? {
         routes.indices.contains(selectedRouteIndex) ? routes[selectedRouteIndex] : nil
     }
     private var altCoords: [CLLocationCoordinate2D] {
         routes.enumerated().filter { $0.offset != selectedRouteIndex }.first?.element.coordinates ?? []
+    }
+
+    private func fmtDist(_ meters: Double) -> String {
+        let useMiles: Bool
+        switch distanceUnit {
+        case "mi": useMiles = true
+        case "km": useMiles = false
+        default: useMiles = false
+        }
+        if useMiles {
+            let mi = meters / 1609.34
+            if mi >= 0.1 { return String(format: "%.1f ميل", mi) }
+            return String(format: "%.0f قدم", meters * 3.28084)
+        }
+        return formatDistance(meters)
     }
 
     private func displayTemp(_ celsius: Double) -> String {
@@ -75,7 +109,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             MapBridge(
-                pins: pins,
+                pins: allPins,
                 routeCoords: selectedRoute?.coordinates ?? [],
                 altRouteCoords: altCoords,
                 tripCoords: [],
@@ -95,6 +129,24 @@ struct ContentView: View {
                 topBar
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
+                if reportThanks {
+                    Text("شكراً! بلاغك انحفظ ويظهر على الخريطة 🙏")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .glass(cornerRadius: 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                HStack {
+                    Spacer()
+                    Button { showReportSheet = true } label: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 52, height: 52)
+                            .background(LinearGradient(colors: [.orange, .red], startPoint: .top, endPoint: .bottom), in: Circle())
+                            .shadow(color: .orange.opacity(0.45), radius: 8, y: 3)
+                    }
+                }
                 bottomStack
             }
             .padding(.horizontal, 10)
@@ -113,8 +165,11 @@ struct ContentView: View {
             guard let loc = newValue else { return }
             voice.update(userLocation: loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
+            checkProximity(loc)
         }
+        .preferredColorScheme(schemeOverride)
         .sheet(isPresented: $showSaved) { savedSheet }
+        .sheet(isPresented: $showReportSheet) { reportSheet }
         .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
@@ -188,7 +243,9 @@ struct ContentView: View {
 
     private var bottomStack: some View {
         VStack(spacing: 8) {
-            if let place = selected, selectedRoute == nil { placeCard(place) }
+            if let rid = reportSelectedID, let report = reportsStore.activeReports.first(where: { $0.id == rid }) {
+                reportCard(report)
+            } else if let place = selected, selectedRoute == nil { placeCard(place) }
             if let route = selectedRoute { routeBar(route) }
             if !stops.isEmpty { stopsBar }
             if !suggestions.isEmpty { suggestionsList }
@@ -330,7 +387,7 @@ struct ContentView: View {
             }
             HStack(spacing: 12) {
                 Label(formatDuration(route.duration), systemImage: "clock")
-                Label(formatDistance(route.distance), systemImage: "arrow.triangle.swap")
+                Label(fmtDist(route.distance), systemImage: "arrow.triangle.swap")
                 if !elevations.isEmpty {
                     Label("▲ \(Int(elevations.max() ?? 0)) م", systemImage: "mountain.2")
                 }
@@ -366,7 +423,7 @@ struct ContentView: View {
                     }
                     if let loc = locationService.location {
                         let d = loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
-                        Text("يبعد \(formatDistance(d)) عنك").font(.caption2).foregroundStyle(.secondary)
+                        Text("يبعد \(fmtDist(d)) عنك").font(.caption2).foregroundStyle(.secondary)
                     }
                     if let w = placeWeather {
                         Text("🌡 \(displayTemp(w.temperature)) \(w.label) • شروق \(w.sunrise) • غروب \(w.sunset)")
@@ -434,7 +491,7 @@ struct ContentView: View {
                     .multilineTextAlignment(.center).foregroundStyle(.white)
                     .padding(.horizontal, 24)
                 if !voice.arrived {
-                    Text(formatDistance(voice.distanceToNext)).font(.headline).foregroundStyle(.gray)
+                    Text(fmtDist(voice.distanceToNext)).font(.headline).foregroundStyle(.gray)
                 }
                 Button { voice.stop(); followUser = false } label: {
                     Text("إيقاف الملاحة")
@@ -510,6 +567,16 @@ struct ContentView: View {
                     Label("الخريطة والطبقات", systemImage: "map.fill")
                 }
                 NavigationLink {
+                    offlinePage
+                } label: {
+                    Label("خرائط بدون إنترنت", systemImage: "arrow.down.circle.fill")
+                }
+                NavigationLink {
+                    notificationsPage
+                } label: {
+                    Label("الإشعارات", systemImage: "bell.fill")
+                }
+                NavigationLink {
                     helpPage
                 } label: {
                     Label("مساعدة وملاحظات", systemImage: "questionmark.circle.fill")
@@ -548,6 +615,26 @@ struct ContentView: View {
                 Picker("الوحدة", selection: $tempUnit) {
                     Text("سيليزية °C").tag("c")
                     Text("فهرنهايت °F").tag("f")
+                }
+                .pickerStyle(.segmented)
+            }
+            Section("المظهر") {
+                Picker("الوضع", selection: $appearance) {
+                    Text("عادي").tag("light")
+                    Text("تلقائي").tag("auto")
+                    Text("داكن").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appearance) { _, mode in
+                    if mode == "dark", styleKind != .dark { styleKind = .dark }
+                    if mode == "light", styleKind == .dark { styleKind = .standard }
+                }
+            }
+            Section("وحدة المسافة") {
+                Picker("المسافة", selection: $distanceUnit) {
+                    Text("كيلومتر").tag("km")
+                    Text("ميل").tag("mi")
+                    Text("تلقائي").tag("auto")
                 }
                 .pickerStyle(.segmented)
             }
@@ -620,7 +707,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.3").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.4").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -633,9 +720,196 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    // MARK: - Offline page
+
+    private var offlinePage: some View {
+        List {
+            Section {
+                Text("نزّل خريطة منطقتك وتصفّحها بدون إنترنت. يُنزَّل النمط الحالي للخريطة بمدى تقريبي 30 كم حول موقعك.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button {
+                    if let loc = locationService.location {
+                        offlineManager.download(styleURL: styleKind.url ?? MapStyleKind.standard.url!,
+                                                center: loc.coordinate, name: "منطقتي — \(styleKind.label)")
+                    }
+                } label: {
+                    Label("تنزيل المنطقة حول موقعي", systemImage: "arrow.down.circle.fill")
+                }
+                .disabled(locationService.location == nil || offlineManager.downloading)
+                if offlineManager.downloading {
+                    ProgressView(value: offlineManager.fraction) {
+                        Text("جارٍ التنزيل… \(Int(offlineManager.fraction * 100))٪")
+                    }
+                }
+                if let error = offlineManager.lastError {
+                    Text(error).font(.caption2).foregroundStyle(.red)
+                }
+            }
+            Section("المناطق المحمّلة") {
+                if offlineManager.packs.isEmpty {
+                    Text("لا توجد مناطق محمّلة بعد").foregroundStyle(.secondary)
+                }
+                ForEach(Array(offlineManager.packs.enumerated()), id: \.offset) { _, pack in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(offlineManager.name(of: pack)).font(.subheadline.weight(.medium))
+                            Text("\(offlineManager.stateText(of: pack)) • \(offlineManager.sizeText(of: pack))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) { offlineManager.delete(pack) } label: {
+                            Image(systemName: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("خرائط بدون إنترنت")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { offlineManager.reload() }
+    }
+
+    // MARK: - Notifications page
+
+    private var notificationsPage: some View {
+        Form {
+            Section {
+                Toggle("تنبيه عند الاقتراب من بلاغ طريق", isOn: $notifReports)
+                    .onChange(of: notifReports) { _, on in if on { Notify.requestPermission() } }
+                Toggle("تنبيه عند الاقتراب من مكان محفوظ (300م)", isOn: $notifSaved)
+                    .onChange(of: notifSaved) { _, on in if on { Notify.requestPermission() } }
+            } footer: {
+                Text("تصلك تنبيهات صوتية وإشعارات أثناء القيادة حتى لا يفوتك خطر أو مكان يهمّك.")
+            }
+            Section {
+                Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
+                    Label("فتح إعدادات إشعارات النظام", systemImage: "gearshape")
+                }
+            }
+        }
+        .navigationTitle("الإشعارات")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - Road reports UI
+
+    private var reportSheet: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
+                    ForEach(reportKinds, id: \.key) { kind in
+                        Button { submitReport(kind) } label: {
+                            VStack(spacing: 7) {
+                                Text(kind.emoji).font(.system(size: 34))
+                                    .frame(width: 64, height: 64)
+                                    .background(Color.white.opacity(0.12), in: Circle())
+                                Text(kind.title).font(.caption.weight(.medium)).foregroundStyle(.primary)
+                            }
+                        }
+                    }
+                }
+                .padding(18)
+            }
+            .navigationTitle("شنو شفت بالطريق؟")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showReportSheet = false } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func reportCard(_ report: RoadReport) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(report.kindInfo.emoji).font(.system(size: 30))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(report.kindInfo.title).font(.headline)
+                    Text("بلاغ طريق • \(report.ageText)").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { reportSelectedID = nil } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 7) {
+                Button {
+                    reportsStore.confirm(report.id)
+                    reportSelectedID = nil
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } label: {
+                    Label("بعده موجود", systemImage: "hand.thumbsup.fill")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
+                }
+                Button {
+                    reportsStore.remove(report.id)
+                    reportSelectedID = nil
+                } label: {
+                    Label("زال خلاص", systemImage: "hand.thumbsdown")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14), in: Capsule())
+                }
+            }
+        }
+        .padding(12)
+        .glass(cornerRadius: 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func submitReport(_ kind: ReportKind) {
+        let coordinate = locationService.location?.coordinate
+            ?? selected?.coordinate
+            ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
+        reportsStore.add(kind: kind.key, at: coordinate)
+        showReportSheet = false
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation { reportThanks = true }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            withAnimation { reportThanks = false }
+        }
+    }
+
+    private func checkProximity(_ loc: CLLocation) {
+        let now = Date()
+        func cooling(_ key: String) -> Bool {
+            if let last = alertCooldown[key], now.timeIntervalSince(last) < 900 { return true }
+            alertCooldown[key] = now
+            return false
+        }
+        if notifReports {
+            for report in reportsStore.activeReports {
+                let d = loc.distance(from: CLLocation(latitude: report.latitude, longitude: report.longitude))
+                if d < 600, !cooling("rep-\(report.id)") {
+                    let text = "تنبيه: \(report.kindInfo.title) على بعد \(fmtDist(d))"
+                    voice.announce(text)
+                    Notify.fire(title: "وجهتي — تنبيه طريق", body: text)
+                }
+            }
+        }
+        if notifSaved {
+            for saved in store.places {
+                let d = loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))
+                if d < 300, !cooling("saved-\(saved.place.id)") {
+                    let text = "اقتربت من مكانك المحفوظ: \(saved.place.name)"
+                    voice.announce(text)
+                    Notify.fire(title: "وجهتي — مكان محفوظ", body: text)
+                }
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func select(_ place: Place) {
+        if place.id.hasPrefix("report-") {
+            reportSelectedID = String(place.id.dropFirst("report-".count))
+            selected = nil
+            suggestions = []
+            return
+        }
+        reportSelectedID = nil
         selected = place
         suggestions = []
         if !pins.contains(place) { pins = [place] }
