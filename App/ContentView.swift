@@ -4,6 +4,25 @@ import UIKit
 import WidgetKit
 
 
+struct Category: Identifiable {
+    var id: String { key }
+    var key: String
+    var group: String
+    var title: String
+    var icon: String
+}
+
+let categories: [Category] = [
+    Category(key: "restaurant", group: "amenity", title: "مطاعم", icon: "fork.knife"),
+    Category(key: "cafe", group: "amenity", title: "كافيهات", icon: "cup.and.saucer.fill"),
+    Category(key: "hotel", group: "tourism", title: "فنادق", icon: "bed.double.fill"),
+    Category(key: "hospital", group: "amenity", title: "مستشفيات", icon: "cross.case.fill"),
+    Category(key: "pharmacy", group: "amenity", title: "صيدليات", icon: "pills.fill"),
+    Category(key: "fuel", group: "amenity", title: "وقود", icon: "fuelpump.fill"),
+    Category(key: "park", group: "leisure", title: "حدائق", icon: "tree.fill"),
+    Category(key: "supermarket", group: "shop", title: "تسوق", icon: "cart.fill"),
+]
+
 struct ContentView: View {
     @StateObject private var locationService = LocationService()
     @StateObject private var store = PlacesStore()
@@ -22,6 +41,7 @@ struct ContentView: View {
     @AppStorage("wijhati.notifMaster") private var notifMaster = true
     @AppStorage("wijhati.language") private var language = "ar"
     @AppStorage("wijhati.voiceID") private var voiceID = ""
+    @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
@@ -1021,7 +1041,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.37").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.38").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1133,25 +1153,57 @@ struct ContentView: View {
     }
 
 
+    private func qualityLabel(_ q: Int) -> String {
+        switch q {
+        case 3: return "ممتازة".loc
+        case 2: return "محسّنة".loc
+        default: return "عادية".loc
+        }
+    }
+
     private var voicePickerPage: some View {
         Form {
-            ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
-                Button {
-                    voiceID = info.id
-                    voice.preview(voiceID: info.id)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(info.name)
-                            Text(info.language).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if voiceID == info.id {
-                            Image(systemName: "checkmark").foregroundStyle(.blue)
+            Section("الصوت".loc) {
+                ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
+                    Button {
+                        voiceID = info.id
+                        voice.preview(voiceID: info.id)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(info.name)
+                                Text("\(info.language) • \(qualityLabel(info.quality))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if voiceID == info.id {
+                                Image(systemName: "checkmark").foregroundStyle(.blue)
+                            }
                         }
                     }
+                    .foregroundStyle(.primary)
                 }
-                .foregroundStyle(.primary)
+            }
+            Section("أسلوب الصوت".loc) {
+                ForEach(VoiceGuide.styles, id: \.id) { style in
+                    Button {
+                        voiceStyle = style.id
+                        voice.previewStyle(style)
+                    } label: {
+                        HStack {
+                            Text(style.name.loc)
+                            Spacer()
+                            if voiceStyle == style.id {
+                                Image(systemName: "checkmark").foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+            }
+            Section {
+                Text("لأصوات عربية إضافية بجودة أعلى، حمّلها من إعدادات الآيفون ← إمكانية الوصول ← المحتوى المنطوق ← الأصوات ← العربية، وستظهر هنا تلقائياً.".loc)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("اختيار الصوت".loc)
