@@ -33,6 +33,12 @@ final class VoiceGuide: ObservableObject {
         }
     }
 
+    /// One-off spoken alert (proximity warnings, report confirmations).
+    func announce(_ text: String) {
+        speak(text)
+        vibrate(pattern: [0, 80, 60, 80])
+    }
+
     func stop() {
         active = false
         synth.stopSpeaking(at: .immediate)
