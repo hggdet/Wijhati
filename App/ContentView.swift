@@ -272,8 +272,8 @@ struct ContentView: View {
                 Image(systemName: "sparkles")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 46, height: 46)
-                    .glassCircle()
             }
+            .glass(cornerRadius: 23)
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 18, weight: .semibold))
