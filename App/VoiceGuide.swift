@@ -108,7 +108,7 @@ final class VoiceGuide: ObservableObject {
         utterance.voice = Self.bestArabicVoice
         utterance.rate = 0.47
         utterance.pitchMultiplier = 1.0
-        utterance.volume = 1.0
+        utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
         synth.speak(utterance)
     }
 
