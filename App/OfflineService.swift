@@ -19,12 +19,15 @@ final class OfflineManager: ObservableObject {
     func reload() {
         MLNOfflineStorage.shared.reloadPacks()
         packs = MLNOfflineStorage.shared.packs ?? []
-        for pack in packs { pack.requestProgress() }
         updateState()
     }
 
     @objc private func progressChanged(_ notification: Notification) {
-        reload()
+        // NOTE: never call requestProgress()/reload() from here — requesting
+        // progress posts this same notification, which used to recurse until
+        // the app froze and got killed. Just re-read the cached progress.
+        packs = MLNOfflineStorage.shared.packs ?? []
+        updateState()
     }
 
     private func updateState() {
