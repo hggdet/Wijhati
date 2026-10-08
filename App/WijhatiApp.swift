@@ -18,7 +18,7 @@ struct WijhatiApp: App {
         WindowGroup {
             ContentView()
                 .font(.body.weight(.bold))
-                .foregroundStyle(Color(white: 0.06))
+                .foregroundStyle(adaptiveInk)
                 .environmentObject(store)
                 .environmentObject(location)
                 .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
