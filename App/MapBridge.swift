@@ -27,20 +27,6 @@ enum MapStyleKind: String, CaseIterable {
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
 
-    /// Canonical remote style URL — offline downloads must use this, never
-    /// the locally patched file URL (a file:// style can kill pack creation).
-    var remoteURL: URL? {
-        switch self {
-        case .standard: return URL(string: "https://tiles.openfreemap.org/styles/liberty")
-        case .bright: return URL(string: "https://tiles.openfreemap.org/styles/positron")
-        case .ofmBright: return URL(string: "https://tiles.openfreemap.org/styles/bright")
-        case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
-        case .ofmDark: return URL(string: "https://tiles.openfreemap.org/styles/dark")
-        case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
-        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
-        }
-    }
-
     // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
     // We download the liberty/positron styles once, rewrite every
     // label to prefer the Arabic name, and cache the patched style
@@ -99,7 +85,6 @@ struct MapBridge: UIViewRepresentable {
     var isoPolygon: [CLLocationCoordinate2D]
     var styleKind: MapStyleKind
     var show3D: Bool
-    var radarTimestamp: Int?
     var followUser: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
@@ -207,7 +192,6 @@ struct MapBridge: UIViewRepresentable {
             }
         }
         private var shownPinIDs: [String] = []
-        private var lastRadarTS: Int?
 
         init(_ parent: MapBridge) {
             self.parent = parent
@@ -303,7 +287,7 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Layers
         func refreshLayers(style: MLNStyle) {
-            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.radarTimestamp ?? -1)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
+            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
             if signature == lastLayerSignature { return }
             lastLayerSignature = signature
             updatePOILabels(style: style)
@@ -315,7 +299,6 @@ struct MapBridge: UIViewRepresentable {
                        color: .systemOrange, width: 5, opacity: 0.95)
             updateIsochrone(style: style)
             updateBuildings(style: style)
-            updateRadar(style: style)
         }
 
         private func geoJSONLine(_ coords: [CLLocationCoordinate2D]) -> MLNShape? {
@@ -436,26 +419,5 @@ struct MapBridge: UIViewRepresentable {
             }
         }
 
-        private func updateRadar(style: MLNStyle) {
-            let sourceID = "rain-source"
-            if let ts = parent.radarTimestamp {
-                if lastRadarTS != ts {
-                    lastRadarTS = ts
-                    if let layer = style.layer(withIdentifier: "rain-layer") { style.removeLayer(layer) }
-                    if let source = style.source(withIdentifier: sourceID) { style.removeSource(source) }
-                    let source = MLNRasterTileSource(identifier: sourceID,
-                        tileURLTemplates: ["https://tilecache.rainviewer.com/v2/radar/\(ts)/{z}/{x}/{y}/256/2/1_1.png"],
-                        options: [.minimumZoomLevel: 0, .maximumZoomLevel: 12, .tileSize: 256])
-                    style.addSource(source)
-                    let layer = MLNRasterStyleLayer(identifier: "rain-layer", source: source)
-                    layer.rasterOpacity = NSExpression(forConstantValue: 0.55)
-                    style.addLayer(layer)
-                }
-            } else {
-                lastRadarTS = nil
-                if let layer = style.layer(withIdentifier: "rain-layer") { style.removeLayer(layer) }
-                if let source = style.source(withIdentifier: sourceID) { style.removeSource(source) }
-            }
-        }
     }
 }
