@@ -190,7 +190,7 @@ struct ContentView: View {
 
             if showSearch { searchOverlay }
             if voice.active { pocketOverlay }
-            if showIntro { MorphIntroView() }
+            if showIntro { WorldIntroView() }
         }
         .onAppear {
             locationService.request()
@@ -198,7 +198,7 @@ struct ContentView: View {
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
             syncWidgetPlaces()
             Task {
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
+                try? await Task.sleep(nanoseconds: 3_400_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
             }
             if let loc = locationService.location {
@@ -1014,7 +1014,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.31").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.32").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1348,75 +1348,6 @@ struct ShareSheet: UIViewControllerRepresentable {
 }
 
 // MARK: - Morph-symbol launch intro (native take on expo-ios-morph-symbol)
-private struct MorphIntroView: View {
-    @State private var index = 0
-    @State private var morphBlur: CGFloat = 0
-    @State private var showTitle = false
-    @State private var drift = false
-
-    private let symbols = ["location.fill", "mappin.and.ellipse",
-                           "point.topleft.down.to.point.bottomright.curvepath",
-                           "mappin.circle.fill"]
-
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.99, green: 0.44, blue: 0.72),
-                                    Color(red: 0.56, green: 0.38, blue: 0.96),
-                                    Color(red: 0.22, green: 0.56, blue: 0.97)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-            Circle().fill(Color(red: 1.0, green: 0.62, blue: 0.85).opacity(0.5))
-                .frame(width: 300, height: 300).blur(radius: 70)
-                .offset(x: drift ? -110 : -60, y: drift ? -330 : -280)
-            Circle().fill(Color(red: 0.35, green: 0.75, blue: 1.0).opacity(0.45))
-                .frame(width: 320, height: 320).blur(radius: 80)
-                .offset(x: drift ? 120 : 70, y: drift ? 300 : 250)
-
-            VStack(spacing: 22) {
-                ZStack {
-                    ForEach(symbols.indices, id: \.self) { i in
-                        Image(systemName: symbols[i])
-                            .font(.system(size: 96, weight: .bold))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
-                            .opacity(i == index ? 1 : 0)
-                            .scaleEffect(i == index ? 1 : 0.75)
-                            .blur(radius: i == index ? morphBlur : 16)
-                    }
-                }
-                .frame(height: 125)
-                VStack(spacing: 6) {
-                    Text("وجهتي")
-                        .font(.system(size: 42, weight: .black)).foregroundStyle(.white)
-                    Text("خرائط وملاحة عربية أنيقة".loc)
-                        .font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.85))
-                }
-                .opacity(showTitle ? 1 : 0)
-                .offset(y: showTitle ? 0 : 12)
-            }
-            VStack {
-                Spacer()
-                Text("من تطوير عبدالباسط خضير".loc)
-                    .font(.caption2).foregroundStyle(.white.opacity(0.75))
-                    .padding(.bottom, 26)
-            }
-        }
-        .task { await runSequence() }
-    }
-
-    private func runSequence() async {
-        withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) { drift = true }
-        for i in 1..<symbols.count {
-            try? await Task.sleep(nanoseconds: 520_000_000)
-            withAnimation(.easeIn(duration: 0.16)) { morphBlur = 16 }
-            try? await Task.sleep(nanoseconds: 170_000_000)
-            index = i
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.62)) { morphBlur = 0 }
-        }
-        try? await Task.sleep(nanoseconds: 220_000_000)
-        withAnimation(.easeOut(duration: 0.4)) { showTitle = true }
-    }
-}
 
 // MARK: - Quick places (home / work) + local search matches
 extension ContentView {
