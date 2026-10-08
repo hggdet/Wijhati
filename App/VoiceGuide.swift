@@ -39,6 +39,12 @@ final class VoiceGuide: ObservableObject {
         vibrate(pattern: [0, 80, 60, 80])
     }
 
+    /// Coordinate the user is currently being guided toward (AR view target).
+    var nextTargetCoordinate: CLLocationCoordinate2D? {
+        if nextIndex < steps.count { return steps[nextIndex].coordinate }
+        return destination
+    }
+
     func stop() {
         active = false
         synth.stopSpeaking(at: .immediate)
