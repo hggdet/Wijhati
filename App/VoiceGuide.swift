@@ -88,10 +88,21 @@ final class VoiceGuide: ObservableObject {
         }
     }
 
+    /// The most human-sounding Arabic voice installed on the device:
+    /// premium > enhanced > default. Users can download an enhanced
+    /// Arabic voice in iOS Settings for an even more natural sound.
+    private static let bestArabicVoice: AVSpeechSynthesisVoice? = {
+        let arabic = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("ar") }
+        return arabic.max { $0.quality.rawValue < $1.quality.rawValue }
+            ?? AVSpeechSynthesisVoice(language: "ar-SA")
+    }()
+
     private func speak(_ text: String) {
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ar-SA")
-        utterance.rate = 0.5
+        utterance.voice = Self.bestArabicVoice
+        utterance.rate = 0.47
+        utterance.pitchMultiplier = 1.0
+        utterance.volume = 1.0
         synth.speak(utterance)
     }
 
