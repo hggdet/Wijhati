@@ -235,9 +235,15 @@ struct MapBridge: UIViewRepresentable {
                 abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
                 abs($0.longitude - annotation.coordinate.longitude) < 0.00005
             }
-            let id = isReport ? "wijhati-report-pin" : "wijhati-pin"
+            let isCommunity = parent.pins.contains {
+                $0.id.hasPrefix("community-") &&
+                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
+                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
+            }
+            let id = isReport ? "wijhati-report-pin" : (isCommunity ? "wijhati-community-pin" : "wijhati-pin")
             if let existing = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return existing }
-            return MLNAnnotationImage(image: isReport ? Self.reportPinImage() : Self.pinImage(), reuseIdentifier: id)
+            let img = isReport ? Self.reportPinImage() : (isCommunity ? Self.communityPinImage() : Self.pinImage())
+            return MLNAnnotationImage(image: img, reuseIdentifier: id)
         }
 
         static func reportPinImage() -> UIImage {
@@ -255,6 +261,26 @@ struct MapBridge: UIViewRepresentable {
                     .foregroundColor: UIColor.white
                 ]
                 let text = "!" as NSString
+                let ts = text.size(withAttributes: attrs)
+                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
+            }
+        }
+
+        static func communityPinImage() -> UIImage {
+            let size = CGSize(width: 34, height: 34)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            return renderer.image { _ in
+                let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 30, height: 30))
+                UIColor.systemPurple.setFill()
+                circle.fill()
+                UIColor.white.setStroke()
+                circle.lineWidth = 2.5
+                circle.stroke()
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 16, weight: .bold),
+                    .foregroundColor: UIColor.white
+                ]
+                let text = "★" as NSString
                 let ts = text.size(withAttributes: attrs)
                 text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
             }
