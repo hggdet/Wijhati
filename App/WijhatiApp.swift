@@ -10,6 +10,7 @@ struct WijhatiApp: App {
         MapStyleKind.prepareArabicStyles()
     }
 
+    @AppStorage("wijhati.language") private var language = "ar"
     @StateObject private var store = PlacesStore()
     @StateObject private var location = LocationService()
 
@@ -20,8 +21,8 @@ struct WijhatiApp: App {
                 .foregroundStyle(Color(white: 0.06))
                 .environmentObject(store)
                 .environmentObject(location)
-                .environment(\.layoutDirection, .rightToLeft)
-                .environment(\.locale, Locale(identifier: "ar"))
+                .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
+                .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
         }
     }
 }
