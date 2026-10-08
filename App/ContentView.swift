@@ -1014,7 +1014,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.29").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.30").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1033,11 +1033,9 @@ struct ContentView: View {
     private var offlinePage: some View {
         List {
             Section {
-                Text("نزّل خريطة منطقتك وتصفّحها بدون إنترنت. يُنزَّل النمط الحالي للخريطة بمدى تقريبي 30 كم حول موقعك.")
-                    .font(.caption).foregroundStyle(.secondary)
                 Button {
-                    if let loc = locationService.location {
-                        offlineManager.download(styleURL: styleKind.url ?? MapStyleKind.standard.url!,
+                    if let loc = locationService.location, let url = styleKind.url ?? MapStyleKind.standard.url {
+                        offlineManager.download(styleURL: url,
                                                 center: loc.coordinate, name: "منطقتي — \(styleKind.label)")
                     }
                 } label: {
@@ -1053,7 +1051,7 @@ struct ContentView: View {
                     Text(error).font(.caption2).foregroundStyle(.red)
                 }
             }
-            Section("المناطق المحمّلة".loc) {
+            Section {
                 if offlineManager.packs.isEmpty {
                     Text("لا توجد مناطق محمّلة بعد".loc).foregroundStyle(.secondary)
                 }
@@ -1135,36 +1133,36 @@ struct ContentView: View {
     private var notificationsPage: some View {
         Form {
             Section {
-                Toggle("كل التنبيهات".loc, isOn: $notifMaster)
+                Toggle("التنبيهات".loc, isOn: $notifMaster)
                     .onChange(of: notifMaster) { _, on in if on { Notify.requestPermission() } }
-                Toggle("تنبيه عند الاقتراب من مكان محفوظ (300م)".loc, isOn: $notifSaved)
+                Toggle("تنبيه عند الاقتراب".loc, isOn: $notifSaved)
                     .onChange(of: notifSaved) { _, on in if on { Notify.requestPermission() } }
                     .disabled(!notifMaster)
-            } footer: {
-                Text("تصلك تنبيهات صوتية وإشعارات أثناء القيادة حتى لا يفوتك مكان يهمّك. المفتاح العام يطفئ كل التنبيهات دفعة وحدة.")
             }
-            Section("الصوت".loc) {
-                HStack {
-                    Text("علوّ صوت المرشد".loc)
-                    Slider(value: $voiceVolume, in: 0...1)
-                    Text("\(Int(voiceVolume * 100))٪")
-                        .font(.caption).foregroundStyle(.secondary).frame(width: 42)
+            Section {
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("صوت المرشد".loc)
+                        Spacer()
+                        Text("\(Int(voiceVolume * 100))٪")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Slider(value: $voiceVolume, in: 0...1) { editing in
+                        if !editing { voice.announce("صوت المرشد") }
+                    }
                 }
-                Button {
-                    voice.announce("هذي تجربة لصوت المرشد والتنبيهات")
-                } label: {
-                    Label("تجربة الصوت".loc, systemImage: "speaker.wave.2.fill")
-                }
+                .padding(.vertical, 4)
             }
             Section {
                 Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
-                    Label("فتح إعدادات إشعارات النظام".loc, systemImage: "gearshape")
+                    Label("فتح إعدادات التطبيق".loc, systemImage: "gearshape")
                 }
             }
         }
         .navigationTitle("الإشعارات".loc)
         .navigationBarTitleDisplayMode(.inline)
     }
+
 
 
 
@@ -1181,7 +1179,7 @@ struct ContentView: View {
         if notifSaved {
             for saved in store.places {
                 let d = loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))
-                if d < 300, !cooling("saved-\(saved.place.id)") {
+                if d < 50, !cooling("saved-\(saved.place.id)") {
                     let text = "اقتربت من مكانك المحفوظ: \(saved.place.name)"
                     voice.announce(text)
                     Notify.fire(title: "وجهتي — مكان محفوظ", body: text)
