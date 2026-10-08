@@ -2,13 +2,14 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, ofmBright, dark, cartoon, satellite
+    case standard, bright, ofmBright, dark, ofmDark, cartoon, satellite
     var label: String {
         switch self {
         case .standard: return "قياسية"
         case .bright: return "فاتحة"
         case .ofmBright: return "زاهية"
         case .dark: return "ليلي"
+        case .ofmDark: return "داكن"
         case .cartoon: return "كرتونية"
         case .satellite: return "قمر صناعي"
         }
@@ -19,6 +20,7 @@ enum MapStyleKind: String, CaseIterable {
         case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
+        case .ofmDark: return Self.patchedStyleFile("dark") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
         }
@@ -37,7 +39,7 @@ enum MapStyleKind: String, CaseIterable {
     }
 
     static func prepareArabicStyles() {
-        for name in ["liberty", "positron", "bright"] {
+        for name in ["liberty", "positron", "bright", "dark"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
