@@ -16,6 +16,8 @@ struct WijhatiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .font(.body.weight(.bold))
+                .foregroundStyle(Color(white: 0.06))
                 .environmentObject(store)
                 .environmentObject(location)
                 .environment(\.layoutDirection, .rightToLeft)
