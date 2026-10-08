@@ -36,6 +36,16 @@ struct GlassModifier: ViewModifier {
     }
 }
 
+/// Ink for text and icons: near-black in light mode, near-white in dark
+/// mode — keeps the user's bold black look readable on dark surfaces.
+var adaptiveInk: Color {
+    Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 0.97, alpha: 1)
+            : UIColor(white: 0.06, alpha: 1)
+    })
+}
+
 extension View {
     func glass(cornerRadius: CGFloat = 24) -> some View {
         modifier(GlassModifier(cornerRadius: cornerRadius))
