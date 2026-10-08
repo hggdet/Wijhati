@@ -63,7 +63,16 @@ enum GeoService {
                                       address: addressParts.joined(separator: "، "),
                                       lat: coords[1], lon: coords[0]))
         }
-        return results
+        var seen = Set<String>()
+        let unique = results.filter { seen.insert($0.id).inserted }
+        if let near {
+            let origin = CLLocation(latitude: near.latitude, longitude: near.longitude)
+            return unique.sorted {
+                origin.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) <
+                origin.distance(from: CLLocation(latitude: $1.latitude, longitude: $1.longitude))
+            }
+        }
+        return unique
     }
 
 
@@ -320,28 +329,6 @@ enum GeoService {
         case "end of road": return "في نهاية الطريق انعطف \(dir)\(onto)"
         default: return dir.isEmpty ? "تابع السير\(onto)" : "اتجه \(dir)\(onto)"
         }
-    }
-
-    // MARK: - Valhalla isochrone
-    static func isochrone(center: CLLocationCoordinate2D, minutes: Int, costing: String) async -> [CLLocationCoordinate2D] {
-        let body: [String: Any] = [
-            "locations": [["lat": center.latitude, "lon": center.longitude]],
-            "costing": costing,
-            "contours": [["time": minutes]],
-            "polygons": true
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return [] }
-        var request = URLRequest(url: URL(string: "https://valhalla1.openstreetmap.de/isochrone")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = data
-        guard let root = await sendJSON(request) as? [String: Any],
-              let features = root["features"] as? [[String: Any]],
-              let first = features.first,
-              let geom = first["geometry"] as? [String: Any],
-              let rings = geom["coordinates"] as? [[[Double]]],
-              let outer = rings.first else { return [] }
-        return outer.map { CLLocationCoordinate2D(latitude: $0[1], longitude: $0[0]) }
     }
 
     // MARK: - Open-Meteo weather + elevation
