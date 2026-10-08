@@ -393,16 +393,6 @@ enum GeoService {
         return values
     }
 
-    // MARK: - RainViewer
-    static func latestRadarTimestamp() async -> Int? {
-        guard let root = await getJSON(URL(string: "https://api.rainviewer.com/public/weather-maps.json")!) as? [String: Any],
-              let radar = root["radar"] as? [String: Any],
-              let past = radar["past"] as? [[String: Any]],
-              let last = past.last,
-              let time = last["time"] as? Int else { return nil }
-        return time
-    }
-
     // MARK: - HTTP helpers
     static func getJSON(_ url: URL) async -> Any? {
         // A real User-Agent + a sane timeout: Nominatim/Photon ask for an
