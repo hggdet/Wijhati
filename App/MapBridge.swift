@@ -14,14 +14,49 @@ enum MapStyleKind: String, CaseIterable {
     }
     var url: URL? {
         switch self {
-        case .standard: return URL(string: "https://tiles.versatiles.org/styles/colorful/style.json")
-        case .bright: return URL(string: "https://tiles.versatiles.org/styles/graybeard/style.json")
+        case .standard: return Self.patchedStyleFile("liberty") ?? URL(string: "https://tiles.openfreemap.org/styles/liberty")
+        case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .cartoon: return Self.localStyle(name: "cartoon-v2", json: Self.cartoonJSON)
         case .satellite: return Self.localStyle(name: "satellite-v2", json: Self.satelliteJSON)
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
+
+    // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
+    // We download the liberty/positron styles once, rewrite every
+    // label to prefer the Arabic name, and cache the patched style
+    // locally — labels then show pure Arabic instead of the stock
+    // bilingual Latin+Arabic rendering.
+    private static func patchedStyleFile(_ name: String) -> URL? {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
+    }
+
+    static func prepareArabicStyles() {
+        for name in ["liberty", "positron"] {
+            guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
+            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
+            if FileManager.default.fileExists(atPath: file.path) { continue }
+            URLSession.shared.dataTask(with: remote) { data, _, _ in
+                guard let data,
+                      var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      var layers = root["layers"] as? [[String: Any]] else { return }
+                for i in layers.indices {
+                    guard var layout = layers[i]["layout"] as? [String: Any],
+                          layout["text-field"] != nil else { continue }
+                    layout["text-field"] = ["coalesce", ["get", "name:ar"], ["get", "name"]] as [Any]
+                    layers[i]["layout"] = layout
+                }
+                root["layers"] = layers
+                if let out = try? JSONSerialization.data(withJSONObject: root) {
+                    try? out.write(to: file, options: .atomic)
+                }
+            }.resume()
+        }
+    }
 
     // Raster styles are embedded in code and written to the caches
     // folder at runtime: no dependence on bundle resources, which
