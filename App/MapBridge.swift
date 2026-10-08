@@ -2,11 +2,12 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, cartoon, satellite
+    case standard, bright, dark, cartoon, satellite
     var label: String {
         switch self {
         case .standard: return "قياسية"
         case .bright: return "فاتحة"
+        case .dark: return "ليلي 🌙"
         case .cartoon: return "كرتونية 🎨"
         case .satellite: return "قمر صناعي"
         }
@@ -15,6 +16,7 @@ enum MapStyleKind: String, CaseIterable {
         switch self {
         case .standard: return URL(string: "https://tiles.versatiles.org/styles/colorful/style.json")
         case .bright: return URL(string: "https://tiles.versatiles.org/styles/graybeard/style.json")
+        case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .cartoon: return Bundle.main.url(forResource: "cartoon-style", withExtension: "json")
         case .satellite: return Bundle.main.url(forResource: "satellite-style", withExtension: "json")
         }
@@ -141,9 +143,34 @@ struct MapBridge: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, imageFor annotation: MLNAnnotation) -> MLNAnnotationImage? {
-            let id = "wijhati-pin"
+            let isReport = parent.pins.contains {
+                $0.id.hasPrefix("report-") &&
+                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
+                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
+            }
+            let id = isReport ? "wijhati-report-pin" : "wijhati-pin"
             if let existing = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return existing }
-            return MLNAnnotationImage(image: Self.pinImage(), reuseIdentifier: id)
+            return MLNAnnotationImage(image: isReport ? Self.reportPinImage() : Self.pinImage(), reuseIdentifier: id)
+        }
+
+        static func reportPinImage() -> UIImage {
+            let size = CGSize(width: 36, height: 36)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            return renderer.image { _ in
+                let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 32, height: 32))
+                UIColor.systemOrange.setFill()
+                circle.fill()
+                UIColor.white.setStroke()
+                circle.lineWidth = 2.5
+                circle.stroke()
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 20, weight: .black),
+                    .foregroundColor: UIColor.white
+                ]
+                let text = "!" as NSString
+                let ts = text.size(withAttributes: attrs)
+                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
+            }
         }
 
         static func pinImage() -> UIImage {
