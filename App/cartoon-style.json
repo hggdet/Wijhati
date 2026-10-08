@@ -1,0 +1,1 @@
+{"layers":[{"id":"background","paint":{"background-color":"#f2efe9"},"type":"background"},{"id":"osm-carto","source":"osm-carto","type":"raster"}],"name":"Wijhati Cartoon","sources":{"osm-carto":{"attribution":"© OpenStreetMap contributors","maxzoom":19,"tileSize":256,"tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"type":"raster"}},"version":8}
