@@ -28,7 +28,6 @@ struct ContentView: View {
     @StateObject private var reportsStore = ReportsStore()
     @StateObject private var community = CommunityStore()
     @State private var showAssistant = false
-    @StateObject private var liveShare = LiveShareService()
     @State private var showAR = false
     @State private var homePlace: Place?
     @State private var workPlace: Place?
@@ -197,25 +196,6 @@ struct ContentView: View {
             .padding(.bottom, 8)
 
             if voice.active { pocketOverlay }
-            if liveShare.active {
-                VStack {
-                    HStack(spacing: 8) {
-                        Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.orange)
-                        Text("مشاركة حية • \(liveShare.remainingText)").font(.caption.weight(.bold))
-                        Button { shareItem = SharePayload(text: liveShare.shareText) } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        Button { liveShare.stop() } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .glass(cornerRadius: 18)
-                    .padding(.top, 60)
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
             if showIntro { IntroView() }
         }
         .onAppear {
@@ -234,7 +214,6 @@ struct ContentView: View {
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
             voice.update(userLocation: loc)
-            liveShare.moved(to: loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
         }
@@ -741,31 +720,6 @@ struct ContentView: View {
                 } label: {
                     Label("حول وجهتي", systemImage: "info.circle.fill")
                 }
-                Section("مشاركة موقعي الحي") {
-                    if liveShare.active {
-                        Label("المشاركة جارية • \(liveShare.remainingText)", systemImage: "dot.radiowaves.left.and.right")
-                        Button { shareItem = SharePayload(text: liveShare.shareText) } label: {
-                            Label("إرسال رابط التتبع", systemImage: "square.and.arrow.up")
-                        }
-                        Button(role: .destructive) { liveShare.stop() } label: {
-                            Label("إيقاف المشاركة", systemImage: "stop.circle")
-                        }
-                    } else {
-                        ForEach([15, 30, 60], id: \.self) { mins in
-                            Button {
-                                liveShare.start(minutes: mins)
-                                if let loc = locationService.location { liveShare.moved(to: loc) }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                    shareItem = SharePayload(text: liveShare.shareText)
-                                }
-                            } label: {
-                                Label("مشاركة لمدة \(mins) دقيقة", systemImage: "location.circle")
-                            }
-                        }
-                        Text("يرسل رابطاً يفتحه أي شخص (واتساب/تيليكرام) ليتابع موقعك على خريطة حية حتى انتهاء المدة. التتبع الحي الكامل يعمل مع السيرفر المشترك.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
                 Section {
                     Button {
                         showSettings = false
@@ -890,7 +844,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.14").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.15").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
