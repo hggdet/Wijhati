@@ -1,123 +1,83 @@
 import Foundation
 import AVFoundation
-import UIKit
 import CoreLocation
+import MapKit
+import UIKit
 
-/// Offline Arabic voice + haptic guidance that walks a route's steps
-/// using live GPS — no need to look at the screen.
+/// Pocket navigation: Arabic voice + haptic patterns, minimal screen.
 final class VoiceGuide: ObservableObject {
-    @Published var active = false
-    @Published var currentInstruction = ""
+    @Published var active: Bool = false
+    @Published var currentInstruction: String = ""
     @Published var distanceToNext: Double = 0
-    @Published var arrived = false
 
     private let synth = AVSpeechSynthesizer()
-    private var steps: [StepData] = []
-    private var destination: CLLocationCoordinate2D?
-    private var nextIndex = 0
-    private var announcedApproach = false
-    private var offRouteCount = 0
+    private var steps: [MKRoute.Step] = []
+    private var stepIndex: Int = 0
+    private var announcedMilestones: Set<String> = []
 
-    func start(steps: [StepData], destination: CLLocationCoordinate2D) {
-        let filtered = steps.filter { $0.distance > 0 }
-        self.steps = filtered.isEmpty ? steps : filtered
-        self.destination = destination
-        nextIndex = 0
-        announcedApproach = false
-        arrived = false
+    func start(route: MKRoute) {
+        steps = route.steps.filter { !$0.instructions.isEmpty }
+        stepIndex = 0
+        announcedMilestones = []
         active = true
-        speak("بدأت الملاحة بالجيب. حطّ الهاتف بجيبك واسمع الإرشادات.")
-        if let first = self.steps.first {
-            currentInstruction = first.instruction
-            speak("بعد \(formatDistance(first.distance)): \(first.instruction)")
+        if let first = steps.first {
+            currentInstruction = first.instructions
+            speak("بدأت الملاحة. \(first.instructions)")
         }
     }
 
     func stop() {
         active = false
         synth.stopSpeaking(at: .immediate)
+        steps = []
     }
 
-    func update(userLocation: CLLocation) {
-        guard active, !arrived else { return }
-        if let dest = destination {
-            let d = userLocation.distance(from: CLLocation(coordinate: dest))
-            if d < 25 {
-                arrived = true
-                currentInstruction = "وصلت إلى وجهتك"
-                speak("وصلت إلى وجهتك. مبروك!")
-                vibrate(pattern: [0, 400, 120, 400])
-                return
-            }
-        }
-        guard nextIndex < steps.count else { return }
-        let step = steps[nextIndex]
-        let target = CLLocation(coordinate: step.coordinate)
-        let dist = userLocation.distance(from: target)
-        distanceToNext = dist
+    func update(location: CLLocation) {
+        guard active, stepIndex < steps.count else { return }
+        let step = steps[stepIndex]
+        let target = CLLocation(latitude: step.polyline.coordinate.latitude,
+                                longitude: step.polyline.coordinate.longitude)
+        let d = location.distance(from: target)
+        distanceToNext = d
 
-        if dist < 120 && !announcedApproach {
-            announcedApproach = true
-            currentInstruction = step.instruction
-            speak("بعد \(formatDistance(max(dist, 20))): \(step.instruction)")
-            vibrateFor(step.instruction)
+        let milestone: Int
+        if d > 400 { milestone = 400 }
+        else if d > 150 { milestone = 150 }
+        else if d > 60 { milestone = 60 }
+        else { milestone = 0 }
+
+        let key = "\(stepIndex)-\(milestone)"
+        if milestone > 0, !announcedMilestones.contains(key) {
+            announcedMilestones.insert(key)
+            speak("بعد \(formatDistance(d))، \(step.instructions)")
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
         }
-        if dist < 30 {
-            speak(step.instruction)
-            vibrateFor(step.instruction)
-            nextIndex += 1
-            announcedApproach = false
-            if nextIndex < steps.count {
-                currentInstruction = steps[nextIndex].instruction
+
+        if d <= 35 {
+            let generator = UINotificationFeedbackGenerator()
+            if step.instructions.contains("يمين") || step.instructions.contains("right") {
+                generator.notificationOccurred(.success)
+            } else if step.instructions.contains("يسار") || step.instructions.contains("left") {
+                generator.notificationOccurred(.error)
+            } else {
+                generator.notificationOccurred(.warning)
             }
-        }
-        if dist > 400 {
-            offRouteCount += 1
-            if offRouteCount == 6 {
-                speak("يبدو أنك بعيد عن المسار. ارجع للمسار بالخريطة.")
-                vibrate(pattern: [0, 120, 80, 120, 80, 120])
+            stepIndex += 1
+            if stepIndex < steps.count {
+                currentInstruction = steps[stepIndex].instructions
+            } else {
+                speak("وصلت إلى وجهتك. أحسنت!")
+                let long = UIImpactFeedbackGenerator(style: .heavy)
+                long.impactOccurred(intensity: 1.0)
+                stop()
             }
-        } else {
-            offRouteCount = 0
         }
     }
 
     private func speak(_ text: String) {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "ar-SA")
-        utterance.rate = 0.5
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         synth.speak(utterance)
-    }
-
-    private func vibrateFor(_ instruction: String) {
-        if instruction.contains("يسار") {
-            vibrate(pattern: [0, 90, 70, 90])
-        } else if instruction.contains("يمين") {
-            vibrate(pattern: [0, 90, 70, 90, 70, 90])
-        } else {
-            vibrate(pattern: [0, 130])
-        }
-    }
-
-    private func vibrate(pattern: [Int]) {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        var delay: Double = 0
-        var toggle = false
-        for value in pattern {
-            if toggle {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    generator.notificationOccurred(.warning)
-                }
-            }
-            delay += Double(value) / 1000.0
-            toggle.toggle()
-        }
-    }
-}
-
-extension CLLocation {
-    convenience init(coordinate: CLLocationCoordinate2D) {
-        self.init(latitude: coordinate.latitude, longitude: coordinate.longitude)
     }
 }
