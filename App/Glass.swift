@@ -7,7 +7,7 @@ struct GlassModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
-                .glassEffect(.regular.tint(.white.opacity(0.02)).interactive(),
+                .glassEffect(.regular.tint(.white.opacity(0.55)).interactive(),
                              in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         } else {
             content
@@ -15,7 +15,11 @@ struct GlassModifier: ViewModifier {
                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        .fill(.white.opacity(0.30))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.white.opacity(0.4), lineWidth: 1)
                 )
         }
     }
