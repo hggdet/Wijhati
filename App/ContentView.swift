@@ -134,8 +134,8 @@ struct ContentView: View {
         }
         if useMiles {
             let mi = meters / 1609.34
-            if mi >= 0.1 { return String(format: "%.1f ميل", mi) }
-            return String(format: "%.0f قدم", meters * 3.28084)
+            if mi >= 0.1 { return String(format: "%.1f %@", mi, "ميل".loc) }
+            return String(format: "%.0f %@", meters * 3.28084, "قدم".loc)
         }
         return formatDistance(meters)
     }
@@ -334,7 +334,7 @@ struct ContentView: View {
                 Text("الطقس عند موقعك".loc).font(.caption.weight(.bold))
                 Text("\(displayTemp(w.temperature)) • \(w.label)").font(.subheadline.weight(.medium))
                 Text("🌅 شروق \(w.sunrise) • 🌇 غروب \(w.sunset)").font(.caption2).foregroundStyle(.secondary)
-                Text("الوحدة من الإعدادات ⚙️: \(tempUnit == "f" ? "فهرنهايت" : "سيليزية")")
+                Text("\("الوحدة من الإعدادات".loc) ⚙️: \(tempUnit == "f" ? "فهرنهايت".loc : "سيليزية".loc)")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .padding(12)
@@ -437,7 +437,7 @@ struct ContentView: View {
             Button { showSearch = true } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    Text(query.isEmpty ? "ابحث عن مكان أو عنوان" : query)
+                    Text(query.isEmpty ? "ابحث عن مكان أو عنوان".loc : query)
                         .font(.subheadline)
                         .foregroundStyle(query.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                         .lineLimit(1)
@@ -582,7 +582,7 @@ struct ContentView: View {
                 Label("\(transport.label): \(formatDuration(route.duration))", systemImage: "clock")
                 Label(fmtDist(route.distance), systemImage: "arrow.triangle.swap")
                 if !elevations.isEmpty {
-                    Label("▲ \(Int(elevations.max() ?? 0)) م", systemImage: "mountain.2")
+                    Label("▲ \(Int(elevations.max() ?? 0)) \("م".loc)", systemImage: "mountain.2")
                 }
                 Spacer()
                 Button {
@@ -591,7 +591,7 @@ struct ContentView: View {
                         voice.start(steps: route.steps, destination: place.coordinate)
                     }
                 } label: {
-                    Label("جيب", systemImage: "waveform")
+                    Label("جيب".loc, systemImage: "waveform")
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Color.blue, in: Capsule()).foregroundStyle(.white)
@@ -636,7 +636,7 @@ struct ContentView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
                 Button { Task { await computeRoute() } } label: {
-                    Label(loadingRoute ? "…" : "الاتجاهات", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    Label(loadingRoute ? "…" : "الاتجاهات".loc, systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 11).padding(.vertical, 8)
                         .background(Color.blue, in: Capsule()).foregroundStyle(.white)
@@ -645,7 +645,7 @@ struct ContentView: View {
                     let added = store.toggle(place)
                     if added { UINotificationFeedbackGenerator().notificationOccurred(.success) }
                 } label: {
-                    Label(store.contains(place) ? "محفوظ" : "حفظ الموقع", systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
+                    Label(store.contains(place) ? "محفوظ".loc : "حفظ الموقع".loc, systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
@@ -783,8 +783,8 @@ struct ContentView: View {
         NavigationStack {
             List {
                 Section("أماكن سريعة".loc) {
-                    quickPlaceRow(title: "البيت", icon: "house.fill", place: homePlace, key: "wijhati.homePlace", isHome: true)
-                    quickPlaceRow(title: "الشغل", icon: "briefcase.fill", place: workPlace, key: "wijhati.workPlace", isHome: false)
+                    quickPlaceRow(title: "البيت".loc, icon: "house.fill", place: homePlace, key: "wijhati.homePlace", isHome: true)
+                    quickPlaceRow(title: "الشغل".loc, icon: "briefcase.fill", place: workPlace, key: "wijhati.workPlace", isHome: false)
                 }
                 if store.places.isEmpty {
                     Text("لا توجد أماكن محفوظة بعد".loc).foregroundStyle(.secondary)
@@ -907,13 +907,13 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 Picker("وحدة الحرارة".loc, selection: $tempUnit) {
-                    Text("سيليزية °C").tag("c")
-                    Text("فهرنهايت °F").tag("f")
+                    Text("سيليزية °C".loc).tag("c")
+                    Text("فهرنهايت °F".loc).tag("f")
                 }
                 .pickerStyle(.menu)
                 Picker("وحدة المسافة".loc, selection: $distanceUnit) {
-                    Text("كيلومتر").tag("km")
-                    Text("ميل").tag("mi")
+                    Text("كيلومتر".loc).tag("km")
+                    Text("ميل".loc).tag("mi")
                     Text("تلقائي".loc).tag("auto")
                 }
                 .pickerStyle(.menu)
@@ -963,46 +963,46 @@ struct ContentView: View {
     private var helpPage: some View {
         List {
             Section("تعليمات الاستخدام".loc) {
-                Label("ابحث عن أي مكان من شريط البحث — الاقتراحات تظهر ويا المسافة لكل نتيجة", systemImage: "magnifyingglass")
-                Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان", systemImage: "mappin.and.ellipse")
-                Label("اسحب بطاقة المكان للأعلى حتى تشوف العنوان الكامل والإحداثيات", systemImage: "square.and.arrow.up.on.square")
-                Label("زر الموقع: ضغطة تركّز عليك، الثانية بوصلة باتجاه وجهتك، الثالثة أبنية ثلاثية الأبعاد", systemImage: "location.fill")
-                Label("شريط «مصمت — زجاجي» فوق يتحكم بشفافية واجهة التطبيق مثلما تتحكم بالصوت", systemImage: "slider.horizontal.3")
-                Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»", systemImage: "waveform")
-                Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة", systemImage: "house.fill")
-                Label("نزّل خرائط منطقتك من «الخرائط دون اتصال» حتى تتصفح بدون إنترنت", systemImage: "arrow.down.circle")
+                Label("ابحث عن أي مكان من شريط البحث — الاقتراحات تظهر ويا المسافة لكل نتيجة".loc, systemImage: "magnifyingglass")
+                Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان".loc, systemImage: "mappin.and.ellipse")
+                Label("اسحب بطاقة المكان للأعلى حتى تشوف العنوان الكامل والإحداثيات".loc, systemImage: "square.and.arrow.up.on.square")
+                Label("زر الموقع: ضغطة تركّز عليك، الثانية بوصلة باتجاه وجهتك، الثالثة أبنية ثلاثية الأبعاد".loc, systemImage: "location.fill")
+                Label("من الإعدادات ← «الخريطة» شريط «مصمت — زجاجي» يتحكم بشفافية واجهة التطبيق مثلما تتحكم بالصوت".loc, systemImage: "slider.horizontal.3")
+                Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»".loc, systemImage: "waveform")
+                Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة".loc, systemImage: "house.fill")
+                Label("نزّل خرائط منطقتك من «خرائط بدون إنترنت» حتى تتصفح بدون إنترنت".loc, systemImage: "arrow.down.circle")
             }
             Section("أسئلة شائعة".loc) {
                 DisclosureGroup("ليش بعض أسماء الأماكن خطأ أو ناقصة؟".loc) {
-                    Text("بيانات الخريطة من OpenStreetMap ويحرّرها متطوعون حول العالم. وجهتي يعرض الاسم العربي متى ما توفّر، وبعض الأخطاء من المصدر نفسه وتتصلح بتحديثات البيانات.")
+                    Text("بيانات الخريطة من OpenStreetMap ويحرّرها متطوعون حول العالم. وجهتي يعرض الاسم العربي متى ما توفّر، وبعض الأخطاء من المصدر نفسه وتتصلح بتحديثات البيانات.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("شلون أبدّل نمط الخريطة؟".loc) {
-                    Text("من الإعدادات ← «الخريطة والطبقات» تختار النمط (قياسية، فاتحة، داكنة، قمر صناعي) وتفعّل رادار المطر والأبنية ثلاثية الأبعاد.")
+                    Text("من الإعدادات ← «الخريطة» تختار النمط (قياسية، فاتحة، زاهية، ليلي، داكن، قمر صناعي) وتفعّل الأبنية ثلاثية الأبعاد.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("هل يشتغل التطبيق بدون إنترنت؟".loc) {
-                    Text("بعد تنزيل منطقة من «الخرائط دون اتصال» تقدر تتصفح خريطتها بدون نت. البحث وحساب المسارات والطقس يحتاجون اتصالاً.")
+                    Text("بعد تنزيل منطقة من «خرائط بدون إنترنت» تقدر تتصفح خريطتها بدون نت. البحث وحساب المسارات والطقس يحتاجون اتصالاً.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("شلون أضيف مكاناً مو موجود بالخريطة؟".loc) {
-                    Text("افتح أي مكان قريب واضغط «نشر محلي» من بطاقته، أو ثبّت دبوساً بضغطة مطوّلة وانشر المكان من بطاقته — يظهر عندك وبالمجتمع.")
+                    Text("افتح أي مكان قريب واضغط «نشر محلي» من بطاقته، أو ثبّت دبوساً بضغطة مطوّلة وانشر المكان من بطاقته — يظهر عندك وبالمجتمع.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("شلون أوصل للبيت أو الشغل بسرعة؟".loc) {
-                    Text("ثبّتهما أول مرة من «أماكني المحفوظة» ← البيت/الشغل، وبعدها الاتجاهات بضغطة وحدة من نفس الصفحة أو من ودجت الشاشة الرئيسية.")
+                    Text("ثبّتهما أول مرة من «أماكني المحفوظة» ← البيت/الشغل، وبعدها الاتجاهات بضغطة وحدة من نفس الصفحة أو من ودجت الشاشة الرئيسية.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 DisclosureGroup("ليش ما تغيّر وقت المسار بين السيارة والمشي؟".loc) {
-                    Text("كل نمط يُحسب من خادم مختلف. إذا تعذّر حساب نمط معيّن يطلع لك تنبيه برتقالي — تأكد من اتصالك وجرّب مرة ثانية.")
+                    Text("كل نمط يُحسب من خادم مختلف. إذا تعذّر حساب نمط معيّن يطلع لك تنبيه برتقالي — تأكد من اتصالك وجرّب مرة ثانية.".loc)
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
             Section("تواصل ومشاركة".loc) {
-                Link(destination: URL(string: "mailto:id9871456@gmail.com?subject=" + ("ملاحظات وجهتي".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) {
+                Link(destination: URL(string: "mailto:id9871456@gmail.com?subject=" + ("ملاحظات وجهتي".loc.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) {
                     Label("إرسال ملاحظات للمطوّر".loc, systemImage: "envelope.fill")
                 }
-                ShareLink(item: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة") {
+                ShareLink(item: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة".loc) {
                     Label("مشاركة التطبيق مع صديق".loc, systemImage: "square.and.arrow.up")
                 }
             }
@@ -1039,13 +1039,13 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.35").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.36").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
-                HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
+                HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
             }
             Section {
-                Text("وجهتي تطبيق خرائط عالمي بواجهة عربية زجاجية أنيقة: بحث فوري، مسارات بديلة، أنماط خرائط متعددة، أبنية ثلاثية الأبعاد، رادار مطر، وملاحة صوتية تعمل والهاتف في جيبك.")
+                Text("وجهتي تطبيق خرائط عالمي بواجهة عربية زجاجية أنيقة: بحث فوري، مسارات بديلة، أنماط خرائط متعددة، أبنية ثلاثية الأبعاد، وملاحة صوتية تعمل والهاتف في جيبك.".loc)
                     .font(.callout).foregroundStyle(.secondary)
             }
         }
@@ -1069,7 +1069,7 @@ struct ContentView: View {
                 .disabled(locationService.location == nil || offlineManager.downloading)
                 if offlineManager.downloading {
                     ProgressView(value: offlineManager.fraction) {
-                        Text("جارٍ التنزيل… \(Int(offlineManager.fraction * 100))٪")
+                        Text("\("جارٍ التنزيل…".loc) \(Int(offlineManager.fraction * 100))\(L10n.lang == "en" ? "%" : "٪")")
                     }
                 }
                 if let error = offlineManager.lastError {
@@ -1244,9 +1244,9 @@ struct ContentView: View {
             for saved in store.places {
                 let d = loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))
                 if d < 50, !cooling("saved-\(saved.place.id)") {
-                    let text = "اقتربت من مكانك المحفوظ: \(saved.place.name)"
-                    voice.announce(text)
-                    Notify.fire(title: "وجهتي — مكان محفوظ", body: text)
+                    voice.announce("اقتربت من مكانك المحفوظ: \(saved.place.name)")
+                    Notify.fire(title: "وجهتي — مكان محفوظ".loc,
+                                body: "\("اقتربت من مكانك المحفوظ".loc): \(saved.place.name)")
                 }
             }
         }
@@ -1320,7 +1320,7 @@ struct ContentView: View {
     }
 
     private func handleLongPress(_ coordinate: CLLocationCoordinate2D) {
-        let temp = Place.make(name: "موقع مُحدد",
+        let temp = Place.make(name: "موقع مُحدد".loc,
                                address: String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude),
                                lat: coordinate.latitude, lon: coordinate.longitude)
         select(temp)
@@ -1352,7 +1352,7 @@ struct ContentView: View {
                                             to: dest.coordinate, profile: transport.osrmProfile)
         loadingRoute = false
         if result.isEmpty {
-            routeNotice = "تعذّر حساب مسار \(transport.label) لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب"
+            routeNotice = "\("تعذّر حساب مسار".loc) \(transport.label) \("لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب".loc)"
         }
         // Show the routes immediately; landmark-enriched copies replace
         // them when the (slower) Overpass pass returns.
@@ -1472,7 +1472,7 @@ extension ContentView {
         } else {
             Button {
                 guard let loc = locationService.location else { return }
-                let p = Place.make(name: title, address: "موقعي الحالي", lat: loc.coordinate.latitude, lon: loc.coordinate.longitude)
+                let p = Place.make(name: title, address: "موقعي الحالي".loc, lat: loc.coordinate.latitude, lon: loc.coordinate.longitude)
                 saveQuickPlace(p, key: key, isHome: isHome)
                 Task {
                     if let resolved = await GeoService.reverse(lat: p.latitude, lon: p.longitude) {
@@ -1480,7 +1480,7 @@ extension ContentView {
                     }
                 }
             } label: {
-                Label("تعيين \(title) من موقعي الحالي", systemImage: icon)
+                Label("\("تعيين".loc) \(title) \("من موقعي الحالي".loc)", systemImage: icon)
             }
         }
     }
@@ -1499,7 +1499,7 @@ struct AddPlaceSheet: View {
     init(place: Place, onPublish: @escaping (String, String, String) -> Void) {
         self.place = place
         self.onPublish = onPublish
-        _name = State(initialValue: place.name == "موقع مُحدد" ? "" : place.name)
+        _name = State(initialValue: place.name == "موقع مُحدد".loc ? "" : place.name)
     }
 
     var body: some View {
@@ -1510,7 +1510,7 @@ struct AddPlaceSheet: View {
                 }
                 Section("النوع".loc) {
                     Picker("النوع".loc, selection: $category) {
-                        ForEach(cats, id: \.self) { Text($0) }
+                        ForEach(cats, id: \.self) { Text($0.loc) }
                     }
                     .pickerStyle(.menu)
                 }
@@ -1519,8 +1519,8 @@ struct AddPlaceSheet: View {
                 }
                 Section {
                     Text(Backend.isConfigured
-                         ? "ينشر لكل مستخدمي وجهتي وينحفظ بجهازك."
-                         : "ينحفظ بجهازك هسه، وينشر للكل من يشتغل السيرفر المشترك.")
+                         ? "ينشر لكل مستخدمي وجهتي وينحفظ بجهازك.".loc
+                         : "ينحفظ بجهازك هسه، وينشر للكل من يشتغل السيرفر المشترك.".loc)
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
