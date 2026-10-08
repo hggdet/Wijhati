@@ -12,6 +12,7 @@ struct WijhatiApp: App {
                 .environmentObject(location)
                 .environment(\.layoutDirection, .rightToLeft)
                 .environment(\.locale, Locale(identifier: "ar"))
+                .preferredColorScheme(.dark)
         }
     }
 }
