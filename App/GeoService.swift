@@ -34,6 +34,23 @@ enum GeoService {
         return results
     }
 
+
+    // MARK: - Reverse geocode (Nominatim)
+    static func reverse(lat: Double, lon: Double) async -> Place? {
+        var comps = URLComponents(string: "https://nominatim.openstreetmap.org/reverse")!
+        comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
+                            URLQueryItem(name: "lat", value: "\(lat)"),
+                            URLQueryItem(name: "lon", value: "\(lon)"),
+                            URLQueryItem(name: "accept-language", value: "ar"),
+                            URLQueryItem(name: "zoom", value: "18")]
+        guard let url = comps.url, let root = await getJSON(url) as? [String: Any] else { return nil }
+        let name = (root["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (root["display_name"] as? String)?.split(separator: ",").first.map(String.init)
+            ?? "موقع مُحدد"
+        let address = (root["display_name"] as? String) ?? ""
+        return Place.make(name: name, address: address, lat: lat, lon: lon)
+    }
+
     // MARK: - Overpass nearby categories
     static func nearby(amenity: String, group: String, near: CLLocationCoordinate2D, radius: Double = 3500) async -> [Place] {
         let query = """
