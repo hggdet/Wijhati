@@ -3,24 +3,6 @@ import CoreLocation
 import UIKit
 import WidgetKit
 
-struct Category: Identifiable {
-    var id: String { key }
-    var key: String
-    var group: String
-    var title: String
-    var icon: String
-}
-
-let categories: [Category] = [
-    Category(key: "restaurant", group: "amenity", title: "مطاعم", icon: "fork.knife"),
-    Category(key: "cafe", group: "amenity", title: "كافيهات", icon: "cup.and.saucer.fill"),
-    Category(key: "hotel", group: "tourism", title: "فنادق", icon: "bed.double.fill"),
-    Category(key: "hospital", group: "amenity", title: "مستشفيات", icon: "cross.case.fill"),
-    Category(key: "pharmacy", group: "amenity", title: "صيدليات", icon: "pills.fill"),
-    Category(key: "fuel", group: "amenity", title: "وقود", icon: "fuelpump.fill"),
-    Category(key: "park", group: "leisure", title: "حدائق", icon: "tree.fill"),
-    Category(key: "supermarket", group: "shop", title: "تسوق", icon: "cart.fill"),
-]
 
 struct ContentView: View {
     @StateObject private var locationService = LocationService()
@@ -54,6 +36,9 @@ struct ContentView: View {
     @State private var stops: [Place] = []
     @State private var transport: TransportChoice = .driving
     @State private var routes: [RouteData] = []
+    @State private var routeGeneration = 0
+    @State private var offRouteCount = 0
+    @State private var lastRouteAt = Date.distantPast
     @State private var selectedRouteIndex = 0
     @State private var searching = false
     @State private var loadingRoute = false
@@ -66,9 +51,6 @@ struct ContentView: View {
     @State private var showSaved = false
     @State private var showSettings = false
     @State private var show3D = false
-    @State private var isoMinutes: Int = 0
-    @State private var isoPolygon: [CLLocationCoordinate2D] = []
-
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var localWeather: GeoService.WeatherNow?
     @State private var weatherFetchedAt: Date?
@@ -152,7 +134,6 @@ struct ContentView: View {
                 routeCoords: selectedRoute?.coordinates ?? [],
                 altRouteCoords: altCoords,
                 tripCoords: [],
-                isoPolygon: isoPolygon,
                 styleKind: styleKind,
                 show3D: show3D,
                 followUser: followUser,
@@ -232,6 +213,7 @@ struct ContentView: View {
             voice.update(userLocation: loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
+            checkOffRoute(loc)
         }
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
@@ -1039,7 +1021,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.36").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.37").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1346,10 +1328,16 @@ struct ContentView: View {
 
     private func computeRoute() async {
         guard let origin = locationService.location?.coordinate, let dest = selected else { return }
+        // Generation guard: if the user switches transport or destination
+        // mid-flight, the stale computation must not overwrite the new one.
+        routeGeneration += 1
+        let gen = routeGeneration
+        lastRouteAt = Date()
         routeNotice = nil
         loadingRoute = true
         let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
                                             to: dest.coordinate, profile: transport.osrmProfile)
+        guard gen == routeGeneration else { return }
         loadingRoute = false
         if result.isEmpty {
             routeNotice = "\("تعذّر حساب مسار".loc) \(transport.label) \("لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب".loc)"
@@ -1358,10 +1346,46 @@ struct ContentView: View {
         // them when the (slower) Overpass pass returns.
         routes = result
         selectedRouteIndex = 0
-        routes = await GeoService.enrichRoutes(result)
+        let enriched = await GeoService.enrichRoutes(result)
+        guard gen == routeGeneration else { return }
+        routes = enriched
         elevations = []
         if let first = result.first {
-            elevations = await GeoService.elevations(for: first.coordinates)
+            let els = await GeoService.elevations(for: first.coordinates)
+            guard gen == routeGeneration else { return }
+            elevations = els
+        }
+    }
+
+    /// Auto-reroute: while a route is shown, watch the distance to its
+    /// line; three consecutive fixes 75 m+ away mean the user left the
+    /// route — recompute from the current position (20 s grace after any
+    /// computation so a fresh route never instantly re-triggers).
+    private func checkOffRoute(_ loc: CLLocation) {
+        guard let route = selectedRoute, route.coordinates.count > 1,
+              !loadingRoute, selected != nil else { return }
+        guard Date().timeIntervalSince(lastRouteAt) > 20 else { return }
+        if let dest = selected,
+           loc.distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude)) < 40 { return }
+        let coords = route.coordinates
+        let stride = max(1, coords.count / 400)
+        var best = Double.greatestFiniteMagnitude
+        var i = 0
+        while i < coords.count {
+            let c = coords[i]
+            let d = loc.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
+            if d < best { best = d }
+            i += stride
+        }
+        if let last = coords.last {
+            let d = loc.distance(from: CLLocation(latitude: last.latitude, longitude: last.longitude))
+            if d < best { best = d }
+        }
+        if best > 75 { offRouteCount += 1 } else { offRouteCount = 0 }
+        if offRouteCount >= 3 {
+            offRouteCount = 0
+            voice.announce("إعادة حساب المسار".loc)
+            Task { await computeRoute() }
         }
     }
 
@@ -1372,14 +1396,6 @@ struct ContentView: View {
         followUser = false
     }
 
-    private func updateIsochrone(minutes: Int) async {
-        guard minutes > 0, let loc = locationService.location?.coordinate else {
-            isoPolygon = []
-            return
-        }
-        isoPolygon = await GeoService.isochrone(center: loc, minutes: minutes,
-                                                costing: transport == .walking ? "pedestrian" : "auto")
-    }
 }
 
 struct ElevationChart: View {
