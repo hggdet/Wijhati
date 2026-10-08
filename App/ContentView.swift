@@ -35,6 +35,7 @@ struct ContentView: View {
 
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
     @AppStorage("wijhati.appearance") private var appearance = "auto"
+    @AppStorage("wijhati.glassMode") private var glassMode = "glass"
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
 
@@ -160,6 +161,10 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 topBar
                 statusPills
+                if !searchFocused {
+                    HStack { Spacer(); surfaceControlBar; Spacer() }
+                        .transition(.opacity)
+                }
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
                 if !searchFocused {
@@ -258,6 +263,26 @@ struct ContentView: View {
     // (intro moved to IntroView below)
 
     // MARK: - Top bar (weather + compass)
+
+
+    /// Segmented surface control bar: glass vs solid, switchable live.
+    private var surfaceControlBar: some View {
+        HStack(spacing: 2) {
+            ForEach([("glass", "زجاجي"), ("solid", "مصمت")], id: \.0) { mode, label in
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { glassMode = mode }
+                } label: {
+                    Text(label)
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+                        .background(glassMode == mode ? Color.black.opacity(0.88) : Color.clear, in: Capsule())
+                        .foregroundStyle(glassMode == mode ? Color.white : Color(white: 0.08))
+                }
+            }
+        }
+        .padding(3)
+        .glass(cornerRadius: 19)
+    }
 
     private var topBar: some View {
         HStack(alignment: .top) {
@@ -864,6 +889,11 @@ struct ContentView: View {
                     if mode == "dark", styleKind != .dark { styleKind = .dark }
                     if mode == "light", styleKind == .dark { styleKind = .standard }
                 }
+                Picker("سطح الواجهة", selection: $glassMode) {
+                    Text("زجاجي").tag("glass")
+                    Text("مصمت").tag("solid")
+                }
+                .pickerStyle(.segmented)
             }
             Section("وحدة المسافة") {
                 Picker("المسافة", selection: $distanceUnit) {
@@ -945,7 +975,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.19").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.20").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
