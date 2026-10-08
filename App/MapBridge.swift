@@ -27,6 +27,20 @@ enum MapStyleKind: String, CaseIterable {
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
 
+    /// Canonical remote style URL — offline downloads must use this, never
+    /// the locally patched file URL (a file:// style can kill pack creation).
+    var remoteURL: URL? {
+        switch self {
+        case .standard: return URL(string: "https://tiles.openfreemap.org/styles/liberty")
+        case .bright: return URL(string: "https://tiles.openfreemap.org/styles/positron")
+        case .ofmBright: return URL(string: "https://tiles.openfreemap.org/styles/bright")
+        case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
+        case .ofmDark: return URL(string: "https://tiles.openfreemap.org/styles/dark")
+        case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
+        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
+        }
+    }
+
     // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
     // We download the liberty/positron styles once, rewrite every
     // label to prefer the Arabic name, and cache the patched style
