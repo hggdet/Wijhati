@@ -503,39 +503,21 @@ struct ContentView: View {
 
     private var settingsSheet: some View {
         NavigationStack {
-            Form {
-                Section("نمط الخريطة") {
-                    Picker("النمط", selection: $styleKind) {
-                        ForEach(MapStyleKind.allCases, id: \.self) { kind in
-                            Text(kind.label).tag(kind)
-                        }
-                    }
+            List {
+                NavigationLink {
+                    mapSettingsPage
+                } label: {
+                    Label("الخريطة والطبقات", systemImage: "map.fill")
                 }
-                Section("وحدة الحرارة") {
-                    Picker("الوحدة", selection: $tempUnit) {
-                        Text("سيليزية °C").tag("c")
-                        Text("فهرنهايت °F").tag("f")
-                    }
-                    .pickerStyle(.segmented)
+                NavigationLink {
+                    helpPage
+                } label: {
+                    Label("مساعدة وملاحظات", systemImage: "questionmark.circle.fill")
                 }
-                Section("طبقات") {
-                    Toggle("أبنية ثلاثية الأبعاد", isOn: $show3D)
-                    Toggle("رادار المطر الحي", isOn: $radarOn)
-                        .onChange(of: radarOn) { _, on in
-                            if on { Task { radarTS = await GeoService.latestRadarTimestamp() } }
-                        }
-                }
-                Section("منطقة الوصول من موقعي") {
-                    Picker("المدة", selection: $isoMinutes) {
-                        Text("إيقاف").tag(0)
-                        Text("10 د").tag(10)
-                        Text("20 د").tag(20)
-                        Text("30 د").tag(30)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: isoMinutes) { _, minutes in
-                        Task { await updateIsochrone(minutes: minutes) }
-                    }
+                NavigationLink {
+                    aboutPage
+                } label: {
+                    Label("حول وجهتي", systemImage: "info.circle.fill")
                 }
                 Section {
                     Button {
@@ -545,31 +527,110 @@ struct ContentView: View {
                         Label("أماكني المحفوظة", systemImage: "bookmark.fill")
                     }
                 }
-                Section("حول التطبيق") {
-                    HStack {
-                        Text("التطبيق")
-                        Spacer()
-                        Text("وجهتي — Wijhati").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("الإصدار")
-                        Spacer()
-                        Text("1.2").foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Text("المطوّر")
-                        Spacer()
-                        Text("عبدالباسط خضير").foregroundStyle(.secondary)
-                    }
-                    Text("تطبيق خرائط عالمي ببيانات OpenStreetMap ومحرك MapLibre، صُمم وبُني بحب للملاحة العربية.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
             }
             .navigationTitle("الإعدادات")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showSettings = false } } }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var mapSettingsPage: some View {
+        Form {
+            Section("نمط الخريطة") {
+                Picker("النمط", selection: $styleKind) {
+                    ForEach(MapStyleKind.allCases, id: \.self) { kind in
+                        Text(kind.label).tag(kind)
+                    }
+                }
+            }
+            Section("وحدة الحرارة") {
+                Picker("الوحدة", selection: $tempUnit) {
+                    Text("سيليزية °C").tag("c")
+                    Text("فهرنهايت °F").tag("f")
+                }
+                .pickerStyle(.segmented)
+            }
+            Section("طبقات") {
+                Toggle("أبنية ثلاثية الأبعاد", isOn: $show3D)
+                Toggle("رادار المطر الحي", isOn: $radarOn)
+                    .onChange(of: radarOn) { _, on in
+                        if on { Task { radarTS = await GeoService.latestRadarTimestamp() } }
+                    }
+            }
+            Section("منطقة الوصول من موقعي") {
+                Picker("المدة", selection: $isoMinutes) {
+                    Text("إيقاف").tag(0)
+                    Text("10 د").tag(10)
+                    Text("20 د").tag(20)
+                    Text("30 د").tag(30)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: isoMinutes) { _, minutes in
+                    Task { await updateIsochrone(minutes: minutes) }
+                }
+            }
+        }
+        .navigationTitle("الخريطة والطبقات")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var helpPage: some View {
+        List {
+            Section("شلون تستخدم وجهتي؟") {
+                Label("ابحث عن أي مكان أو عنوان من شريط البحث تحت", systemImage: "magnifyingglass")
+                Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان", systemImage: "mappin.and.ellipse")
+                Label("من بطاقة المكان: الاتجاهات، حفظ الموقع، ومشاركته", systemImage: "bookmark")
+                Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك", systemImage: "waveform")
+                Label("غيّر نمط الخريطة (قياسية، فاتحة، كرتونية، قمر صناعي) من «الخريطة والطبقات»", systemImage: "map")
+                Label("زر البوصلة فوق يرجّع الشمال ويركّز على موقعك، وزر الطقس يعرض حرارة موقعك", systemImage: "location.north.fill")
+            }
+            Section("ملاحظاتك تهمّنا") {
+                Link(destination: URL(string: "mailto:id9871456@gmail.com?subject=" + ("ملاحظات وجهتي".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) {
+                    Label("إرسال ملاحظات للمطوّر", systemImage: "envelope.fill")
+                }
+                Button {
+                    shareItem = SharePayload(text: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة 🗺")
+                } label: {
+                    Label("مشاركة التطبيق مع صديق", systemImage: "square.and.arrow.up")
+                }
+            }
+            Section("مصادر البيانات") {
+                Text("الخرائط: © مساهمو OpenStreetMap — الأنماط: VersaTiles وCyclOSM وصور Esri. الطقس: Open-Meteo. المسارات: OSRM. البحث: Photon.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("مساعدة وملاحظات")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var aboutPage: some View {
+        List {
+            Section {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 54)).foregroundStyle(.pink)
+                        Text("وجهتي — Wijhati").font(.title3.weight(.bold))
+                        Text("خرائط وملاحة عربية للعالم كله").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            }
+            Section {
+                HStack { Text("الإصدار"); Spacer(); Text("1.3").foregroundStyle(.secondary) }
+                HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
+                HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
+            }
+            Section {
+                Text("وجهتي تطبيق خرائط عالمي بواجهة عربية زجاجية أنيقة: بحث فوري، مسارات بديلة، أنماط خرائط متعددة، أبنية ثلاثية الأبعاد، رادار مطر، وملاحة صوتية تعمل والهاتف في جيبك.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("حول وجهتي")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - Actions
