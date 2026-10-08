@@ -52,20 +52,37 @@ enum GeoService {
     }
 
     // MARK: - Overpass nearby categories
-    static func nearby(amenity: String, group: String, near: CLLocationCoordinate2D, radius: Double = 3500) async -> [Place] {
+    static func nearby(amenity: String, group: String, near: CLLocationCoordinate2D, radius: Double = 5000) async -> [Place] {
+        // nwr = nodes + ways + relations: most hospitals/shops are drawn
+        // as buildings (ways), not points. "out body center" gives each
+        // way its centroid so it can be pinned.
         let query = """
         [out:json][timeout:20];
-        node["\(group)"="\(amenity)"](around:\(Int(radius)),\(near.latitude),\(near.longitude));
-        out body 40;
+        nwr["\(group)"="\(amenity)"](around:\(Int(radius)),\(near.latitude),\(near.longitude));
+        out body center 80;
         """
-        var request = URLRequest(url: URL(string: "https://overpass-api.de/api/interpreter")!)
-        request.httpMethod = "POST"
-        request.httpBody = ("data=" + (query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")).data(using: .utf8)
-        guard let root = await sendJSON(request) as? [String: Any],
-              let elements = root["elements"] as? [[String: Any]] else { return [] }
+        let mirrors = ["https://overpass-api.de/api/interpreter",
+                       "https://overpass.kumi.systems/api/interpreter",
+                       "https://overpass.nchc.org.tw/api/interpreter"]
+        var elements: [[String: Any]] = []
+        for base in mirrors {
+            var request = URLRequest(url: URL(string: base)!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 25
+            request.setValue("Wijhati/1.6 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = ("data=" + (query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")).data(using: .utf8)
+            if let root = await sendJSON(request) as? [String: Any],
+               let els = root["elements"] as? [[String: Any]], !els.isEmpty {
+                elements = els
+                break
+            }
+        }
         var results: [Place] = []
         for el in elements {
-            guard let lat = el["lat"] as? Double, let lon = el["lon"] as? Double,
+            let center = el["center"] as? [String: Any]
+            guard let lat = (el["lat"] as? Double) ?? (center?["lat"] as? Double),
+                  let lon = (el["lon"] as? Double) ?? (center?["lon"] as? Double),
                   let tags = el["tags"] as? [String: String] else { continue }
             let name = tags["name:ar"] ?? tags["name"] ?? tags["name:en"] ?? "مكان"
             var addr: [String] = []
