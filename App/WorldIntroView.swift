@@ -81,7 +81,7 @@ struct WorldIntroView: View {
         for (r, line) in mask.enumerated() {
             for (c, ch) in line.enumerated() where ch == "#" {
                 out.append(Dot(col: c, row: r, edge: Int(rnd() * 4),
-                               frac: CGFloat(rnd()), delay: rnd() * 0.35))
+                               frac: CGFloat(rnd()), delay: rnd() * 0.85))
             }
         }
         return out
@@ -113,7 +113,7 @@ struct WorldIntroView: View {
                         .fill(ink)
                         .frame(width: cell * 0.62, height: cell * 0.62)
                         .position(assembled ? target : start)
-                        .animation(.spring(response: 0.7, dampingFraction: 0.85).delay(d.delay),
+                        .animation(.spring(response: 1.25, dampingFraction: 0.88).delay(d.delay),
                                    value: assembled)
                 }
                 Text("وجهتي")
@@ -126,7 +126,7 @@ struct WorldIntroView: View {
         .ignoresSafeArea()
         .onAppear {
             assembled = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.9) {
                 withAnimation(.easeIn(duration: 0.6)) { showTitle = true }
             }
         }
