@@ -4,12 +4,19 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    branch: main
 targets:
   Wijhati:
     type: application
     platform: iOS
     sources:
       - App
+    dependencies:
+      - package: MapLibre
+        product: MapLibre
     info:
       path: App/Info.plist
       properties:
