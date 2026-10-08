@@ -809,7 +809,12 @@ struct ContentView: View {
                 NavigationLink {
                     mapSettingsPage
                 } label: {
-                    Label("الخريطة والطبقات".loc, systemImage: "map.fill")
+                    Label("الخريطة".loc, systemImage: "map.fill")
+                }
+                NavigationLink {
+                    appearancePage
+                } label: {
+                    Label("المظهر".loc, systemImage: "circle.lefthalf.filled")
                 }
                 NavigationLink {
                     offlinePage
@@ -861,73 +866,74 @@ struct ContentView: View {
 
     private var mapSettingsPage: some View {
         Form {
-            Section("نمط الخريطة".loc) {
+            Section {
                 Picker("النمط".loc, selection: $styleKind) {
                     ForEach(MapStyleKind.allCases.filter { $0 != .cartoon }, id: \.self) { kind in
                         Text(kind.label).tag(kind)
                     }
                 }
-            }
-            Section("وحدة الحرارة".loc) {
-                Picker("الوحدة".loc, selection: $tempUnit) {
+                .pickerStyle(.menu)
+                Picker("وحدة الحرارة".loc, selection: $tempUnit) {
                     Text("سيليزية °C").tag("c")
                     Text("فهرنهايت °F").tag("f")
                 }
-                .pickerStyle(.segmented)
-            }
-            Section("المظهر".loc) {
-                Picker("الوضع", selection: $appearance) {
-                    Text("عادي").tag("light")
-                    Text("تلقائي").tag("auto")
-                    Text("داكن").tag("dark")
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: appearance) { _, mode in
-                    if mode == "dark", styleKind != .dark { styleKind = .dark }
-                    if mode == "light", styleKind == .dark { styleKind = .standard }
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("شريط التحكم بالزجاج".loc)
-                    HStack(spacing: 8) {
-                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                        Slider(value: $glassLevel, in: 0...1)
-                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                        Text("\(Int(glassLevel * 100))٪")
-                            .font(.caption).foregroundStyle(.secondary).frame(width: 42)
-                    }
-                }
-            }
-            Section("وحدة المسافة".loc) {
-                Picker("المسافة".loc, selection: $distanceUnit) {
+                .pickerStyle(.menu)
+                Picker("وحدة المسافة".loc, selection: $distanceUnit) {
                     Text("كيلومتر").tag("km")
                     Text("ميل").tag("mi")
-                    Text("تلقائي").tag("auto")
+                    Text("تلقائي".loc).tag("auto")
                 }
-                .pickerStyle(.segmented)
-            }
-            Section("طبقات".loc) {
+                .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
                 Toggle("رادار المطر الحي".loc, isOn: $radarOn)
                     .onChange(of: radarOn) { _, on in
                         if on { Task { radarTS = await GeoService.latestRadarTimestamp() } }
                     }
-            }
-            Section("منطقة الوصول من موقعي".loc) {
-                Picker("المدة".loc, selection: $isoMinutes) {
-                    Text("إيقاف").tag(0)
-                    Text("10 د").tag(10)
-                    Text("20 د").tag(20)
-                    Text("30 د").tag(30)
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("شريط التحكم بالزجاج".loc)
+                        Spacer()
+                        Text("\(Int(glassLevel * 100))٪")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        Slider(value: $glassLevel, in: 0...1)
+                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    }
                 }
-                .pickerStyle(.segmented)
-                .onChange(of: isoMinutes) { _, minutes in
-                    Task { await updateIsochrone(minutes: minutes) }
-                }
+                .padding(.vertical, 4)
             }
         }
-        .navigationTitle("الخريطة والطبقات".loc)
+        .navigationTitle("الخريطة".loc)
         .navigationBarTitleDisplayMode(.inline)
     }
+
+    private var appearancePage: some View {
+        Form {
+            ForEach([("light", "الوضع العادي"), ("auto", "تلقائي"), ("dark", "الوضع الداكن")], id: \.0) { item in
+                Button {
+                    appearance = item.0
+                } label: {
+                    HStack {
+                        Text(item.1.loc)
+                        Spacer()
+                        if appearance == item.0 {
+                            Image(systemName: "checkmark").foregroundStyle(.blue)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+        }
+        .onChange(of: appearance) { _, mode in
+            if mode == "dark", styleKind != .dark { styleKind = .dark }
+            if mode == "light", styleKind == .dark { styleKind = .standard }
+        }
+        .navigationTitle("المظهر".loc)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
 
     private var helpPage: some View {
         List {
@@ -1008,7 +1014,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.28").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.29").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
