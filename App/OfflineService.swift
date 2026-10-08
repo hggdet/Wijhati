@@ -25,9 +25,13 @@ final class OfflineManager: ObservableObject {
     @objc private func progressChanged(_ notification: Notification) {
         // NOTE: never call requestProgress()/reload() from here — requesting
         // progress posts this same notification, which used to recurse until
-        // the app froze and got killed. Just re-read the cached progress.
-        packs = MLNOfflineStorage.shared.packs ?? []
-        updateState()
+        // the app froze and got killed. Just re-read the cached progress,
+        // on the main thread (the notification can arrive on any queue).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.packs = MLNOfflineStorage.shared.packs ?? []
+            self.updateState()
+        }
     }
 
     private func updateState() {
@@ -50,6 +54,7 @@ final class OfflineManager: ObservableObject {
     }
 
     func download(styleURL: URL, center: CLLocationCoordinate2D, name: String) {
+        guard !downloading else { return }
         let half = 0.14 // ≈ 15 km each direction
         let bounds = MLNCoordinateBounds(
             sw: CLLocationCoordinate2D(latitude: center.latitude - half, longitude: center.longitude - half),
