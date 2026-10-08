@@ -13,8 +13,8 @@ enum MapStyleKind: String, CaseIterable {
     }
     var url: URL? {
         switch self {
-        case .standard: return URL(string: "https://openfreemap.org/styles/liberty")
-        case .bright: return URL(string: "https://openfreemap.org/styles/positron")
+        case .standard: return URL(string: "https://tiles.versatiles.org/styles/colorful/style.json")
+        case .bright: return URL(string: "https://tiles.versatiles.org/styles/graybeard/style.json")
         case .cartoon: return Bundle.main.url(forResource: "cartoon-style", withExtension: "json")
         case .satellite: return Bundle.main.url(forResource: "satellite-style", withExtension: "json")
         }
@@ -40,7 +40,9 @@ struct MapBridge: UIViewRepresentable {
     var radarTimestamp: Int?
     var followUser: Bool
     var centerRequest: CenterRequest?
+    var northReset: Int
     var onSelectPin: (Place) -> Void
+    var onLongPress: (CLLocationCoordinate2D) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -52,6 +54,10 @@ struct MapBridge: UIViewRepresentable {
         map.logoView.isHidden = true
         map.attributionButton.isHidden = true
         map.setCenter(CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661), zoomLevel: 11, animated: false)
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator,
+                                                     action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.45
+        map.addGestureRecognizer(longPress)
         context.coordinator.map = map
         return map
     }
@@ -72,6 +78,13 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.lastCenterID = req.id
             map.setCenter(req.coordinate, zoomLevel: req.zoom, animated: true)
         }
+        if context.coordinator.lastNorthReset != northReset {
+            context.coordinator.lastNorthReset = northReset
+            var cam = map.camera
+            cam.heading = 0
+            cam.pitch = 0
+            map.setCamera(cam, animated: true)
+        }
         context.coordinator.refreshAnnotations()
         if context.coordinator.styleReady, let style = map.style {
             context.coordinator.refreshLayers(style: style)
@@ -84,6 +97,22 @@ struct MapBridge: UIViewRepresentable {
         var currentStyle: MapStyleKind
         var styleReady = false
         var lastCenterID: UUID?
+        var lastNorthReset: Int = 0
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let map else { return }
+            let point = gesture.location(in: map)
+            let coordinate = map.convert(point, toCoordinateFrom: map)
+            parent.onLongPress(coordinate)
+        }
+
+        func mapView(_ mapView: MLNMapView, didFailLoading style: MLNStyle, withError error: Error) {
+            if currentStyle != .standard {
+                currentStyle = .standard
+                styleReady = false
+                mapView.styleURL = MapStyleKind.standard.url
+            }
+        }
         private var shownPinIDs: [String] = []
         private var lastRadarTS: Int?
 
@@ -226,12 +255,14 @@ struct MapBridge: UIViewRepresentable {
         private func updateBuildings(style: MLNStyle) {
             let layerID = "buildings-3d"
             if parent.show3D && !currentStyle.isRaster {
-                if style.layer(withIdentifier: layerID) == nil,
-                   let vector = style.source(withIdentifier: "openmaptiles") as? MLNVectorTileSource {
+                let vector = (style.source(withIdentifier: "openmaptiles") as? MLNVectorTileSource)
+                    ?? (style.source(withIdentifier: "versatiles-shortbread") as? MLNVectorTileSource)
+                let isShortbread = style.source(withIdentifier: "versatiles-shortbread") != nil
+                if style.layer(withIdentifier: layerID) == nil, let vector {
                     let layer = MLNFillExtrusionStyleLayer(identifier: layerID, source: vector)
-                    layer.sourceLayerIdentifier = "building"
-                    layer.fillExtrusionHeight = NSExpression(forKeyPath: "render_height")
-                    layer.fillExtrusionBase = NSExpression(forKeyPath: "render_min_height")
+                    layer.sourceLayerIdentifier = isShortbread ? "buildings" : "building"
+                    layer.fillExtrusionHeight = NSExpression(forKeyPath: isShortbread ? "height" : "render_height")
+                    layer.fillExtrusionBase = NSExpression(forKeyPath: isShortbread ? "min_height" : "render_min_height")
                     layer.fillExtrusionColor = NSExpression(forConstantValue: UIColor(red: 0.62, green: 0.68, blue: 0.78, alpha: 1))
                     layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.85)
                     layer.minimumZoomLevel = 15
