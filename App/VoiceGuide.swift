@@ -99,11 +99,32 @@ final class VoiceGuide: ObservableObject {
     /// Arabic voice in iOS Settings for an even more natural sound.
     /// Arabic voices installed on the device, best quality first — the
     /// user picks one in Settings (stored as wijhati.voiceID).
-    static var arabicVoiceInfos: [(id: String, name: String, language: String)] {
+    static var arabicVoiceInfos: [(id: String, name: String, language: String, quality: Int)] {
         AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix("ar") }
             .sorted { $0.quality.rawValue > $1.quality.rawValue }
-            .map { (id: $0.identifier, name: $0.name, language: $0.language) }
+            .map { (id: $0.identifier, name: $0.name, language: $0.language, quality: $0.quality.rawValue) }
+    }
+
+    // MARK: - Voice styles
+    // The phone may carry only one Arabic voice, so on top of it the user
+    // gets four "personas" (pitch + rate characters). The default changed
+    // from the flat natural read to the deeper, calmer one.
+    struct VoiceStyle {
+        var id: String
+        var name: String
+        var pitch: Float
+        var rate: Float
+    }
+    static let styles: [VoiceStyle] = [
+        VoiceStyle(id: "calm", name: "هادئ", pitch: 0.93, rate: 0.45),
+        VoiceStyle(id: "natural", name: "طبيعي", pitch: 1.0, rate: 0.47),
+        VoiceStyle(id: "clear", name: "واضح", pitch: 1.06, rate: 0.44),
+        VoiceStyle(id: "lively", name: "نشيط", pitch: 1.13, rate: 0.50),
+    ]
+    static var selectedStyle: VoiceStyle {
+        let id = UserDefaults.standard.string(forKey: "wijhati.voiceStyle") ?? "calm"
+        return styles.first { $0.id == id } ?? styles[0]
     }
 
     static var selectedVoice: AVSpeechSynthesisVoice? {
@@ -116,9 +137,22 @@ final class VoiceGuide: ObservableObject {
     func preview(voiceID: String) {
         synth.stopSpeaking(at: .immediate)
         guard let voice = AVSpeechSynthesisVoice(identifier: voiceID) else { return }
+        let style = Self.selectedStyle
         let utterance = AVSpeechUtterance(string: "صوت المرشد")
         utterance.voice = voice
-        utterance.rate = 0.47
+        utterance.rate = style.rate
+        utterance.pitchMultiplier = style.pitch
+        utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
+        synth.speak(utterance)
+    }
+
+    /// Speak a short sample in the given style (style-picker preview).
+    func previewStyle(_ style: VoiceStyle) {
+        synth.stopSpeaking(at: .immediate)
+        let utterance = AVSpeechUtterance(string: "صوت المرشد")
+        utterance.voice = Self.selectedVoice
+        utterance.rate = style.rate
+        utterance.pitchMultiplier = style.pitch
         utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
         synth.speak(utterance)
     }
@@ -130,10 +164,11 @@ final class VoiceGuide: ObservableObject {
     }()
 
     private func speak(_ text: String) {
+        let style = Self.selectedStyle
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.selectedVoice
-        utterance.rate = 0.47
-        utterance.pitchMultiplier = 1.0
+        utterance.rate = style.rate
+        utterance.pitchMultiplier = style.pitch
         utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
         synth.speak(utterance)
     }
