@@ -2,11 +2,12 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, satellite
+    case standard, bright, cartoon, satellite
     var label: String {
         switch self {
         case .standard: return "قياسية"
         case .bright: return "فاتحة"
+        case .cartoon: return "كرتونية 🎨"
         case .satellite: return "قمر صناعي"
         }
     }
@@ -14,9 +15,11 @@ enum MapStyleKind: String, CaseIterable {
         switch self {
         case .standard: return URL(string: "https://openfreemap.org/styles/liberty")
         case .bright: return URL(string: "https://openfreemap.org/styles/positron")
-        case .satellite: return nil
+        case .cartoon: return Bundle.main.url(forResource: "cartoon-style", withExtension: "json")
+        case .satellite: return Bundle.main.url(forResource: "satellite-style", withExtension: "json")
         }
     }
+    var isRaster: Bool { self == .cartoon || self == .satellite }
 }
 
 struct CenterRequest: Equatable {
@@ -58,13 +61,7 @@ struct MapBridge: UIViewRepresentable {
         if context.coordinator.currentStyle != styleKind {
             context.coordinator.currentStyle = styleKind
             context.coordinator.styleReady = false
-            if let url = styleKind.url {
-                map.styleURL = url
-            } else {
-                map.style = MLNStyle()
-                context.coordinator.applySatellite(style: map.style!)
-                context.coordinator.styleReady = true
-            }
+            map.styleURL = styleKind.url ?? MapStyleKind.standard.url
         }
         if followUser {
             if map.userTrackingMode != .followWithHeading { map.userTrackingMode = .followWithHeading }
@@ -73,18 +70,12 @@ struct MapBridge: UIViewRepresentable {
         }
         if let req = centerRequest, context.coordinator.lastCenterID != req.id {
             context.coordinator.lastCenterID = req.id
-            map.fly(to: MLNMapCamera(lookingAtCenter: req.coordinate, altitude: altitude(forZoom: req.zoom, at: req.coordinate.latitude), pitch: 0, heading: 0), withDuration: 0.8, completionHandler: nil)
+            map.setCenter(req.coordinate, zoomLevel: req.zoom, animated: true)
         }
         context.coordinator.refreshAnnotations()
         if context.coordinator.styleReady, let style = map.style {
             context.coordinator.refreshLayers(style: style)
         }
-    }
-
-    private func altitude(forZoom zoom: Double, at latitude: Double) -> CLLocationDistance {
-        // Rough conversion from MapLibre zoom to camera altitude.
-        let metersPerPixel = 156543.03392 * cos(latitude * .pi / 180) / pow(2.0, zoom)
-        return max(120, metersPerPixel * 400)
     }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
@@ -103,9 +94,6 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Delegate
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
-            if currentStyle == .satellite {
-                applySatellite(style: style)
-            }
             styleReady = true
             refreshLayers(style: style)
         }
@@ -164,16 +152,6 @@ struct MapBridge: UIViewRepresentable {
         }
 
         // MARK: Layers
-        func applySatellite(style: MLNStyle) {
-            if style.source(withIdentifier: "esri") == nil {
-                let source = MLNRasterTileSource(identifier: "esri",
-                    tileURLTemplates: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-                    options: [.minimumZoomLevel: 0, .maximumZoomLevel: 19, .tileSize: 256])
-                style.addSource(source)
-                style.addLayer(MLNRasterStyleLayer(identifier: "esri-layer", source: source))
-            }
-        }
-
         func refreshLayers(style: MLNStyle) {
             updateLine(style: style, id: "alt-route", coords: parent.altRouteCoords,
                        color: .gray, width: 4, opacity: 0.6)
@@ -247,7 +225,7 @@ struct MapBridge: UIViewRepresentable {
 
         private func updateBuildings(style: MLNStyle) {
             let layerID = "buildings-3d"
-            if parent.show3D && currentStyle != .satellite {
+            if parent.show3D && !currentStyle.isRaster {
                 if style.layer(withIdentifier: layerID) == nil,
                    let vector = style.source(withIdentifier: "openmaptiles") as? MLNVectorTileSource {
                     let layer = MLNFillExtrusionStyleLayer(identifier: layerID, source: vector)
@@ -259,10 +237,10 @@ struct MapBridge: UIViewRepresentable {
                     layer.minimumZoomLevel = 15
                     style.addLayer(layer)
                 }
-                map?.setPitch(55, withDuration: 0.6)
+                if let map, map.camera.pitch < 40 { var cam = map.camera; cam.pitch = 55; map.setCamera(cam, animated: true) }
             } else {
                 if let layer = style.layer(withIdentifier: layerID) { style.removeLayer(layer) }
-                if parent.show3D == false { map?.setPitch(0, withDuration: 0.6) }
+                if parent.show3D == false, let map, map.camera.pitch > 1 { var cam = map.camera; cam.pitch = 0; map.setCamera(cam, animated: true) }
             }
         }
 
