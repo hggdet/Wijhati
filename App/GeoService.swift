@@ -51,6 +51,23 @@ enum GeoService {
         return Place.make(name: name, address: address, lat: lat, lon: lon)
     }
 
+    /// Road/area name for the "current street" pill.
+    static func currentStreet(lat: Double, lon: Double) async -> String? {
+        var comps = URLComponents(string: "https://nominatim.openstreetmap.org/reverse")!
+        comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
+                            URLQueryItem(name: "lat", value: "\(lat)"),
+                            URLQueryItem(name: "lon", value: "\(lon)"),
+                            URLQueryItem(name: "accept-language", value: "ar"),
+                            URLQueryItem(name: "addressdetails", value: "1"),
+                            URLQueryItem(name: "zoom", value: "17")]
+        guard let url = comps.url, let root = await getJSON(url) as? [String: Any],
+              let addr = root["address"] as? [String: Any] else { return nil }
+        for key in ["road", "pedestrian", "neighbourhood", "suburb", "village", "town"] {
+            if let v = addr[key] as? String, !v.isEmpty { return v }
+        }
+        return nil
+    }
+
     // MARK: - Overpass nearby categories
     static func nearby(amenity: String, group: String, near: CLLocationCoordinate2D, radius: Double = 5000) async -> [Place] {
         // nwr = nodes + ways + relations: most hospitals/shops are drawn
