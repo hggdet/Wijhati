@@ -45,7 +45,7 @@ struct ContentView: View {
     @State private var searching = false
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .standard
+    @State private var styleKind: MapStyleKind = .cartoon
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var northReset = 0
@@ -65,13 +65,12 @@ struct ContentView: View {
     @State private var showWeatherDetail = false
     @State private var elevations: [Double] = []
     @State private var shareItem: SharePayload?
+    @FocusState private var searchFocused: Bool
+    @State private var suggestTask: Task<Void, Never>?
+    @State private var showIntro = true
     @State private var showReportSheet = false
     @State private var reportSelectedID: String?
     @State private var reportThanks = false
-    @State private var categoryNotice: String?
-    @State private var currentStreet: String?
-    @State private var streetAnchor: CLLocation?
-    @State private var streetFetchedAt: Date?
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
@@ -126,7 +125,8 @@ struct ContentView: View {
                 centerRequest: centerRequest,
                 northReset: northReset,
                 onSelectPin: { place in select(place) },
-                onLongPress: { coordinate in handleLongPress(coordinate) }
+                onLongPress: { coordinate in handleLongPress(coordinate) },
+                onMapTap: { searchFocused = false }
             )
             .ignoresSafeArea()
 
@@ -135,13 +135,6 @@ struct ContentView: View {
                 statusPills
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
-                if let categoryNotice {
-                    Text(categoryNotice)
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .glass(cornerRadius: 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
                 if reportThanks {
                     Text("شكراً! بلاغك انحفظ ويظهر على الخريطة 🙏")
                         .font(.caption.weight(.bold))
@@ -162,6 +155,7 @@ struct ContentView: View {
 
                     Button {
                         followUser = false
+                        northReset += 1
                         if let loc = locationService.location {
                             centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
                         }
@@ -180,9 +174,14 @@ struct ContentView: View {
             .padding(.bottom, 8)
 
             if voice.active { pocketOverlay }
+            if showIntro { introOverlay }
         }
         .onAppear {
             locationService.request()
+            Task {
+                try? await Task.sleep(nanoseconds: 1_900_000_000)
+                withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
+            }
             if let loc = locationService.location {
                 centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
             }
@@ -190,14 +189,13 @@ struct ContentView: View {
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
             voice.update(userLocation: loc)
-            updateCurrentStreet(loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
         }
         .preferredColorScheme(schemeOverride)
         .sheet(isPresented: $showSaved) { savedSheet }
         .sheet(isPresented: $showReportSheet) { reportSheet }
-        .sheet(isPresented: $showSettings) { settingsSheet }
+        .fullScreenCover(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
@@ -205,38 +203,52 @@ struct ContentView: View {
 
     @ViewBuilder
     private var statusPills: some View {
-        if !voice.active, currentStreet != nil || (locationService.location?.speed ?? -1) > 3 {
-            HStack(spacing: 6) {
+        if !voice.active, let loc = locationService.location, loc.speed > 3 {
+            HStack {
                 Spacer()
-                if let street = currentStreet {
-                    Label(street, systemImage: "road.lanes")
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .glass(cornerRadius: 14)
-                }
-                if let loc = locationService.location, loc.speed > 3 {
-                    Text("\(Int((loc.speed * 3.6).rounded())) كم/س")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .glass(cornerRadius: 14)
-                }
+                Text("\(Int((loc.speed * 3.6).rounded())) كم/س")
+                    .font(.caption.weight(.bold))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .glass(cornerRadius: 14)
                 Spacer()
             }
             .transition(.opacity)
         }
     }
 
-    private func updateCurrentStreet(_ loc: CLLocation) {
-        if let anchor = streetAnchor, let at = streetFetchedAt,
-           loc.distance(from: anchor) < 75, Date().timeIntervalSince(at) < 30 { return }
-        streetAnchor = loc
-        streetFetchedAt = Date()
-        Task {
-            if let name = await GeoService.currentStreet(lat: loc.coordinate.latitude, lon: loc.coordinate.longitude) {
-                currentStreet = name
+    private var introOverlay: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.98, green: 0.45, blue: 0.75),
+                                    Color(red: 0.55, green: 0.4, blue: 0.95),
+                                    Color(red: 0.25, green: 0.6, blue: 0.95)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(.white.opacity(0.22)).frame(width: 118, height: 118)
+                    Image(systemName: "mappin")
+                        .font(.system(size: 54, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text("W")
+                        .font(.system(size: 30, weight: .black))
+                        .foregroundStyle(Color(red: 0.1, green: 0.75, blue: 0.6))
+                        .offset(y: -8)
+                }
+                Text("وجهتي")
+                    .font(.system(size: 40, weight: .black))
+                    .foregroundStyle(.white)
+                Text("خرائط وملاحة عربية أنيقة")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                Spacer()
+                Text("من تطوير عبدالباسط خضير")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.bottom, 26)
             }
+            .padding(.top, 90)
         }
+        .transition(.opacity)
     }
 
     // MARK: - Top bar (weather + compass)
@@ -255,18 +267,10 @@ struct ContentView: View {
 
             Spacer()
 
-            Button {
-                northReset += 1
-            } label: {
-                ZStack {
-                    Image(systemName: "arrowtriangle.up.fill")
-                        .font(.system(size: 11)).foregroundStyle(.red).offset(y: -8)
-                    Image(systemName: "arrowtriangle.down.fill")
-                        .font(.system(size: 11)).foregroundStyle(.secondary).offset(y: 8)
-                    Circle().fill(Color.primary).frame(width: 4, height: 4)
-                }
-                .rotationEffect(.degrees(-locationService.heading))
-                .frame(width: 46, height: 46)
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 46, height: 46)
             }
             .glass(cornerRadius: 23)
         }
@@ -313,17 +317,10 @@ struct ContentView: View {
             if let route = selectedRoute { routeBar(route) }
             if !stops.isEmpty { stopsBar }
             if !suggestions.isEmpty { suggestionsList }
-            categoryChips
-            HStack(spacing: 8) {
-                searchBar
-                Button { showSettings = true } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 46, height: 46)
-                }
-                .glass(cornerRadius: 23)
-            }
+            searchBar
         }
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: suggestions.isEmpty)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: searchFocused)
     }
 
     private var searchBar: some View {
@@ -331,12 +328,14 @@ struct ContentView: View {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
             TextField("ابحث عن مكان أو عنوان", text: $query)
                 .font(.subheadline)
-                .onSubmit { Task { await runSearch() } }
+                .focused($searchFocused)
+                .onSubmit { searchFocused = false; Task { await runSearch() } }
                 .onChange(of: query) { _, newValue in
-                    Task {
-                        try? await Task.sleep(nanoseconds: 350_000_000)
-                        guard query == newValue else { return }
-                        if newValue.trimmingCharacters(in: .whitespaces).count >= 3 {
+                    suggestTask?.cancel()
+                    suggestTask = Task {
+                        try? await Task.sleep(nanoseconds: 180_000_000)
+                        guard !Task.isCancelled, query == newValue else { return }
+                        if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
                             suggestions = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
                         } else {
                             suggestions = []
@@ -349,6 +348,10 @@ struct ContentView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }
+            if searchFocused {
+                Button("تم") { searchFocused = false }
+                    .font(.subheadline.weight(.bold))
+            }
         }
         .padding(.horizontal, 12)
         .frame(height: 46)
@@ -356,40 +359,34 @@ struct ContentView: View {
     }
 
     private var suggestionsList: some View {
-        VStack(spacing: 0) {
-            ForEach(suggestions) { place in
-                Button { select(place); suggestions = [] } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "mappin.circle.fill").foregroundStyle(.blue)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
-                            if !place.address.isEmpty {
-                                Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(suggestions) { place in
+                    Button { select(place) } label: {
+                        HStack(spacing: 9) {
+                            Image(systemName: "mappin.circle.fill").foregroundStyle(.blue).font(.system(size: 19))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                                if !place.address.isEmpty {
+                                    Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            if let loc = locationService.location {
+                                Text(fmtDist(loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))))
+                                    .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                             }
                         }
-                        Spacer()
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                }
-                Divider().opacity(0.4)
-            }
-        }
-        .glass(cornerRadius: 18)
-    }
-
-    private var categoryChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                ForEach(categories) { cat in
-                    Button { Task { await loadCategory(cat) } } label: {
-                        Label(cat.title, systemImage: cat.icon).fixedSize()
-                    }
-                    .buttonStyle(ChipButtonStyle())
+                    if place.id != suggestions.last?.id { Divider().opacity(0.35).padding(.leading, 40) }
                 }
             }
-            .padding(.horizontal, 2).padding(.vertical, 2)
         }
+        .frame(maxHeight: 250)
+        .glass(cornerRadius: 22)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private var stopsBar: some View {
@@ -609,7 +606,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     if let data = store.exportJSON(), let text = String(data: data, encoding: .utf8) {
-                        Button { shareItem = SharePayload(text: text) } label: {
+                        ShareLink(item: text) {
                             Image(systemName: "square.and.arrow.up")
                         }
                     }
@@ -740,10 +737,13 @@ struct ContentView: View {
                 Link(destination: URL(string: "mailto:id9871456@gmail.com?subject=" + ("ملاحظات وجهتي".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) {
                     Label("إرسال ملاحظات للمطوّر", systemImage: "envelope.fill")
                 }
-                Button {
-                    shareItem = SharePayload(text: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة 🗺")
-                } label: {
+                ShareLink(item: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة") {
                     Label("مشاركة التطبيق مع صديق", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    UIPasteboard.general.string = "id9871456@gmail.com"
+                } label: {
+                    Label("نسخ إيميل الملاحظات", systemImage: "doc.on.doc")
                 }
             }
             Section("مصادر البيانات") {
@@ -771,7 +771,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.8").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.9").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -967,6 +967,7 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func select(_ place: Place) {
+        searchFocused = false
         if place.id.hasPrefix("report-") {
             reportSelectedID = String(place.id.dropFirst("report-".count))
             selected = nil
@@ -1004,21 +1005,6 @@ struct ContentView: View {
         pins = results
         suggestions = []
         if let first = results.first { select(first); pins = results }
-    }
-
-    private func loadCategory(_ cat: Category) async {
-        guard let loc = locationService.location else { return }
-        searching = true
-        let results = await GeoService.nearby(amenity: cat.key, group: cat.group, near: loc.coordinate)
-        searching = false
-        pins = results
-        if !results.isEmpty {
-            centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
-            selected = nil
-        } else {
-            categoryNotice = "ما لقينا \(cat.title) قريبة منك حالياً"
-            Task { try? await Task.sleep(nanoseconds: 2_600_000_000); categoryNotice = nil }
-        }
     }
 
     private func computeRoute() async {
