@@ -36,6 +36,8 @@ struct ContentView: View {
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
     @AppStorage("wijhati.appearance") private var appearance = "auto"
     @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
+    @AppStorage("wijhati.notifMaster") private var notifMaster = true
+    @AppStorage("wijhati.voiceVolume") private var voiceVolume: Double = 1.0
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
 
@@ -161,10 +163,6 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 topBar
                 statusPills
-                if !searchFocused {
-                    HStack { Spacer(); surfaceControlBar; Spacer() }
-                        .transition(.opacity)
-                }
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
                 if !searchFocused {
@@ -265,18 +263,6 @@ struct ContentView: View {
     // MARK: - Top bar (weather + compass)
 
 
-    /// Glass-strength slider bar — like a volume control for the glass.
-    private var surfaceControlBar: some View {
-        HStack(spacing: 8) {
-            Text("مصمت").font(.caption2.weight(.bold)).foregroundStyle(Color(white: 0.08))
-            Slider(value: $glassLevel, in: 0...1)
-                .tint(Color(white: 0.08))
-                .frame(width: 140)
-            Text("زجاجي").font(.caption2.weight(.bold)).foregroundStyle(Color(white: 0.08))
-        }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .glass(cornerRadius: 19)
-    }
 
     private var topBar: some View {
         HStack(alignment: .top) {
@@ -831,6 +817,11 @@ struct ContentView: View {
                     Label("الإشعارات", systemImage: "bell.fill")
                 }
                 NavigationLink {
+                    locationSettingsPage
+                } label: {
+                    Label("الموقع", systemImage: "location.fill")
+                }
+                NavigationLink {
                     helpPage
                 } label: {
                     Label("مساعدة وملاحظات", systemImage: "questionmark.circle.fill")
@@ -883,11 +874,15 @@ struct ContentView: View {
                     if mode == "dark", styleKind != .dark { styleKind = .dark }
                     if mode == "light", styleKind == .dark { styleKind = .standard }
                 }
-                HStack {
-                    Text("شفافية الزجاج")
-                    Slider(value: $glassLevel, in: 0...1)
-                    Text("\(Int(glassLevel * 100))٪")
-                        .font(.caption).foregroundStyle(.secondary).frame(width: 42)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("شريط التحكم بالزجاج")
+                    HStack(spacing: 8) {
+                        Text("مصمت").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        Slider(value: $glassLevel, in: 0...1)
+                        Text("زجاجي").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        Text("\(Int(glassLevel * 100))٪")
+                            .font(.caption).foregroundStyle(.secondary).frame(width: 42)
+                    }
                 }
             }
             Section("وحدة المسافة") {
@@ -1001,7 +996,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.23").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.24").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1066,13 +1061,60 @@ struct ContentView: View {
 
     // MARK: - Notifications page
 
+
+    private var locationSettingsPage: some View {
+        Form {
+            Section("موقعك الحالي") {
+                if let loc = locationService.location {
+                    HStack { Text("خط العرض"); Spacer(); Text(String(format: "%.5f", loc.coordinate.latitude)).foregroundStyle(.secondary) }
+                    HStack { Text("خط الطول"); Spacer(); Text(String(format: "%.5f", loc.coordinate.longitude)).foregroundStyle(.secondary) }
+                    HStack { Text("الدقة"); Spacer(); Text("\(Int(loc.horizontalAccuracy)) م").foregroundStyle(.secondary) }
+                } else {
+                    Text("فعّل خدمات الموقع حتى يظهر موقعك هنا")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Button {
+                    if let c = locationService.location?.coordinate {
+                        centerRequest = CenterRequest(coordinate: c, zoom: 15)
+                    }
+                    showSettings = false
+                } label: {
+                    Label("ركّز الخريطة على موقعي", systemImage: "location.fill")
+                }
+                Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
+                    Label("فتح إعدادات موقع النظام", systemImage: "gearshape")
+                }
+            }
+        }
+        .navigationTitle("الموقع")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var notificationsPage: some View {
         Form {
             Section {
+                Toggle("كل التنبيهات", isOn: $notifMaster)
+                    .onChange(of: notifMaster) { _, on in if on { Notify.requestPermission() } }
                 Toggle("تنبيه عند الاقتراب من مكان محفوظ (300م)", isOn: $notifSaved)
                     .onChange(of: notifSaved) { _, on in if on { Notify.requestPermission() } }
+                    .disabled(!notifMaster)
             } footer: {
-                Text("تصلك تنبيهات صوتية وإشعارات أثناء القيادة حتى لا يفوتك خطر أو مكان يهمّك.")
+                Text("تصلك تنبيهات صوتية وإشعارات أثناء القيادة حتى لا يفوتك مكان يهمّك. المفتاح العام يطفئ كل التنبيهات دفعة وحدة.")
+            }
+            Section("الصوت") {
+                HStack {
+                    Text("علوّ صوت المرشد")
+                    Slider(value: $voiceVolume, in: 0...1)
+                    Text("\(Int(voiceVolume * 100))٪")
+                        .font(.caption).foregroundStyle(.secondary).frame(width: 42)
+                }
+                Button {
+                    voice.announce("هذي تجربة لصوت المرشد والتنبيهات")
+                } label: {
+                    Label("تجربة الصوت", systemImage: "speaker.wave.2.fill")
+                }
             }
             Section {
                 Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
@@ -1089,6 +1131,7 @@ struct ContentView: View {
 
 
     private func checkProximity(_ loc: CLLocation) {
+        guard notifMaster else { return }
         let now = Date()
         func cooling(_ key: String) -> Bool {
             if let last = alertCooldown[key], now.timeIntervalSince(last) < 900 { return true }
