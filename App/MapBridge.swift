@@ -2,11 +2,12 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, dark, cartoon, satellite
+    case standard, bright, ofmBright, dark, cartoon, satellite
     var label: String {
         switch self {
         case .standard: return "قياسية"
         case .bright: return "فاتحة"
+        case .ofmBright: return "زاهية"
         case .dark: return "ليلي"
         case .cartoon: return "كرتونية"
         case .satellite: return "قمر صناعي"
@@ -16,6 +17,7 @@ enum MapStyleKind: String, CaseIterable {
         switch self {
         case .standard: return Self.patchedStyleFile("liberty") ?? URL(string: "https://tiles.openfreemap.org/styles/liberty")
         case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
+        case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
@@ -35,7 +37,7 @@ enum MapStyleKind: String, CaseIterable {
     }
 
     static func prepareArabicStyles() {
-        for name in ["liberty", "positron"] {
+        for name in ["liberty", "positron", "bright"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
@@ -399,11 +401,19 @@ struct MapBridge: UIViewRepresentable {
                 if style.layer(withIdentifier: layerID) == nil, let vector {
                     let layer = MLNFillExtrusionStyleLayer(identifier: layerID, source: vector)
                     layer.sourceLayerIdentifier = isShortbread ? "buildings" : "building"
-                    layer.fillExtrusionHeight = NSExpression(forKeyPath: isShortbread ? "height" : "render_height")
-                    layer.fillExtrusionBase = NSExpression(forKeyPath: isShortbread ? "min_height" : "render_min_height")
+                    if isShortbread {
+                        layer.fillExtrusionHeight = NSExpression(forKeyPath: "height")
+                        layer.fillExtrusionBase = NSExpression(forKeyPath: "min_height")
+                    } else {
+                        // OpenFreeMap's 3D recipe: only truly extrudable
+                        // buildings, heights growing in smoothly from z15.
+                        layer.predicate = NSPredicate(format: "%K == %@", "extrude", "true")
+                        layer.fillExtrusionHeight = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_height"]] as [Any])
+                        layer.fillExtrusionBase = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_min_height"]] as [Any])
+                    }
                     layer.fillExtrusionColor = NSExpression(forConstantValue: UIColor(red: 0.62, green: 0.68, blue: 0.78, alpha: 1))
-                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.8)
-                    layer.minimumZoomLevel = 16
+                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.7)
+                    layer.minimumZoomLevel = 15
                     // Insert BELOW the label layers so buildings never cover text.
                     if let firstSymbol = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
                         style.insertLayer(layer, below: firstSymbol)
