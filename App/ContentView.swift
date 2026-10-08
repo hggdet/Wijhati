@@ -69,6 +69,9 @@ struct ContentView: View {
     @State private var reportSelectedID: String?
     @State private var reportThanks = false
     @State private var categoryNotice: String?
+    @State private var currentStreet: String?
+    @State private var streetAnchor: CLLocation?
+    @State private var streetFetchedAt: Date?
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
@@ -129,6 +132,7 @@ struct ContentView: View {
 
             VStack(spacing: 8) {
                 topBar
+                statusPills
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
                 if let categoryNotice {
@@ -186,6 +190,7 @@ struct ContentView: View {
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
             voice.update(userLocation: loc)
+            updateCurrentStreet(loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
         }
@@ -195,6 +200,42 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
+        }
+    }
+
+    @ViewBuilder
+    private var statusPills: some View {
+        if !voice.active, currentStreet != nil || (locationService.location?.speed ?? -1) > 3 {
+            HStack(spacing: 6) {
+                Spacer()
+                if let street = currentStreet {
+                    Label(street, systemImage: "road.lanes")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .glass(cornerRadius: 14)
+                }
+                if let loc = locationService.location, loc.speed > 3 {
+                    Text("\(Int((loc.speed * 3.6).rounded())) كم/س")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .glass(cornerRadius: 14)
+                }
+                Spacer()
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func updateCurrentStreet(_ loc: CLLocation) {
+        if let anchor = streetAnchor, let at = streetFetchedAt,
+           loc.distance(from: anchor) < 75, Date().timeIntervalSince(at) < 30 { return }
+        streetAnchor = loc
+        streetFetchedAt = Date()
+        Task {
+            if let name = await GeoService.currentStreet(lat: loc.coordinate.latitude, lon: loc.coordinate.longitude) {
+                currentStreet = name
+            }
         }
     }
 
@@ -217,10 +258,15 @@ struct ContentView: View {
             Button {
                 northReset += 1
             } label: {
-                Image(systemName: "location.north.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .rotationEffect(.degrees(-locationService.heading))
-                    .frame(width: 46, height: 46)
+                ZStack {
+                    Image(systemName: "arrowtriangle.up.fill")
+                        .font(.system(size: 11)).foregroundStyle(.red).offset(y: -8)
+                    Image(systemName: "arrowtriangle.down.fill")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).offset(y: 8)
+                    Circle().fill(Color.primary).frame(width: 4, height: 4)
+                }
+                .rotationEffect(.degrees(-locationService.heading))
+                .frame(width: 46, height: 46)
             }
             .glass(cornerRadius: 23)
         }
@@ -725,7 +771,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.6").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.7").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
