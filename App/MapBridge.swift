@@ -5,13 +5,13 @@ enum MapStyleKind: String, CaseIterable {
     case standard, bright, ofmBright, dark, ofmDark, cartoon, satellite
     var label: String {
         switch self {
-        case .standard: return "قياسية"
-        case .bright: return "فاتحة"
-        case .ofmBright: return "زاهية"
-        case .dark: return "ليلي"
-        case .ofmDark: return "داكن"
-        case .cartoon: return "كرتونية"
-        case .satellite: return "قمر صناعي"
+        case .standard: return "قياسية".loc
+        case .bright: return "فاتحة".loc
+        case .ofmBright: return "زاهية".loc
+        case .dark: return "ليلي".loc
+        case .ofmDark: return "داكن".loc
+        case .cartoon: return "كرتونية".loc
+        case .satellite: return "قمر صناعي".loc
         }
     }
     var url: URL? {
