@@ -38,6 +38,10 @@ struct ContentView: View {
     @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
     @AppStorage("wijhati.notifMaster") private var notifMaster = true
     @AppStorage("wijhati.language") private var language = "ar"
+    @AppStorage("wijhati.voiceID") private var voiceID = ""
+    @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
+    @AppStorage("wijhati.autoDark") private var autoDark = false
+    @Environment(\.colorScheme) private var deviceScheme
     @AppStorage("wijhati.voiceVolume") private var voiceVolume: Double = 1.0
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
@@ -94,6 +98,25 @@ struct ContentView: View {
         if appearance == "dark" { return .dark }
         if appearance == "light" { return .light }
         return nil
+    }
+
+    /// Dark (from the device or the in-app appearance) means a night map —
+    /// automatically. The last light style is remembered and restored.
+    private var effectiveDark: Bool {
+        appearance == "dark" || (appearance == "auto" && deviceScheme == .dark)
+    }
+
+    private func syncStyleToScheme() {
+        if effectiveDark {
+            if styleKind != .dark, styleKind != .ofmDark {
+                lastLightStyle = styleKind.rawValue
+                styleKind = .dark
+                autoDark = true
+            }
+        } else if autoDark {
+            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .standard
+            autoDark = false
+        }
     }
 
     private var selectedRoute: RouteData? {
@@ -197,8 +220,9 @@ struct ContentView: View {
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
             syncWidgetPlaces()
+            syncStyleToScheme()
             Task {
-                try? await Task.sleep(nanoseconds: 3_400_000_000)
+                try? await Task.sleep(nanoseconds: 4_800_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
             }
             if let loc = locationService.location {
@@ -212,6 +236,14 @@ struct ContentView: View {
             checkProximity(loc)
         }
         .preferredColorScheme(schemeOverride)
+        .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
+        .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
+        .onChange(of: appearance) { _, _ in syncStyleToScheme() }
+        .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
+        .onChange(of: styleKind) { _, newKind in
+            // A manual style pick always wins over the automatic night sync.
+            if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
+        }
         .sheet(isPresented: $showSaved) { savedSheet }
         .fullScreenCover(isPresented: $showAR) {
             if let target = voice.nextTargetCoordinate ?? selected?.coordinate {
@@ -860,6 +892,7 @@ struct ContentView: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق".loc) { showSettings = false } } }
         }
         .presentationDetents([.medium, .large])
+        .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
     }
@@ -925,10 +958,6 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.primary)
             }
-        }
-        .onChange(of: appearance) { _, mode in
-            if mode == "dark", styleKind != .dark { styleKind = .dark }
-            if mode == "light", styleKind == .dark { styleKind = .standard }
         }
         .navigationTitle("المظهر".loc)
         .navigationBarTitleDisplayMode(.inline)
@@ -1014,7 +1043,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.32").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.33").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1034,7 +1063,7 @@ struct ContentView: View {
         List {
             Section {
                 Button {
-                    if let loc = locationService.location, let url = styleKind.url ?? MapStyleKind.standard.url {
+                    if let loc = locationService.location, let url = styleKind.remoteURL {
                         offlineManager.download(styleURL: url,
                                                 center: loc.coordinate, name: "منطقتي — \(styleKind.label)")
                     }
@@ -1130,6 +1159,32 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+
+    private var voicePickerPage: some View {
+        Form {
+            ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
+                Button {
+                    voiceID = info.id
+                    voice.preview(voiceID: info.id)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(info.name)
+                            Text(info.language).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if voiceID == info.id {
+                            Image(systemName: "checkmark").foregroundStyle(.blue)
+                        }
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+        }
+        .navigationTitle("اختيار الصوت".loc)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var notificationsPage: some View {
         Form {
             Section {
@@ -1154,6 +1209,11 @@ struct ContentView: View {
                 .padding(.vertical, 4)
             }
             Section {
+                NavigationLink {
+                    voicePickerPage
+                } label: {
+                    Label("اختيار الصوت".loc, systemImage: "person.wave.2.fill")
+                }
                 Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
                     Label("فتح إعدادات التطبيق".loc, systemImage: "gearshape")
                 }
