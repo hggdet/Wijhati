@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreLocation
 import UIKit
+import WidgetKit
 
 struct Category: Identifiable {
     var id: String { key }
@@ -1043,7 +1044,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.33").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.34").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1350,8 +1351,11 @@ struct ContentView: View {
         if result.isEmpty {
             routeNotice = "تعذّر حساب مسار \(transport.label) لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب"
         }
-        routes = await GeoService.enrichRoutes(result)
+        // Show the routes immediately; landmark-enriched copies replace
+        // them when the (slower) Overpass pass returns.
+        routes = result
         selectedRouteIndex = 0
+        routes = await GeoService.enrichRoutes(result)
         elevations = []
         if let first = result.first {
             elevations = await GeoService.elevations(for: first.coordinates)
@@ -1433,6 +1437,7 @@ extension ContentView {
                 shared.removeObject(forKey: k)
             }
         }
+        WidgetCenter.shared.reloadAllTimelines()
     }
     func localMatches(for query: String) -> [Place] {
         let q = GeoService.normalizeArabic(query)
