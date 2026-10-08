@@ -39,6 +39,13 @@ enum Backend {
         return rows
     }
 
+    static func upsert(table: String, payload: [String: Any]) async {
+        guard var req = makeRequest(path: "\(table)?on_conflict=id", method: "POST") else { return }
+        req.setValue("resolution=merge-duplicates,return=minimal", forHTTPHeaderField: "Prefer")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     static func insert(table: String, payload: [String: Any]) async {
         guard var req = makeRequest(path: table, method: "POST") else { return }
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
