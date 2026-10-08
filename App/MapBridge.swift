@@ -7,8 +7,8 @@ enum MapStyleKind: String, CaseIterable {
         switch self {
         case .standard: return "قياسية"
         case .bright: return "فاتحة"
-        case .dark: return "ليلي 🌙"
-        case .cartoon: return "كرتونية 🎨"
+        case .dark: return "ليلي"
+        case .cartoon: return "كرتونية"
         case .satellite: return "قمر صناعي"
         }
     }
@@ -17,8 +17,8 @@ enum MapStyleKind: String, CaseIterable {
         case .standard: return Self.patchedStyleFile("liberty") ?? URL(string: "https://tiles.openfreemap.org/styles/liberty")
         case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
-        case .cartoon: return Self.localStyle(name: "cartoon-v2", json: Self.cartoonJSON)
-        case .satellite: return Self.localStyle(name: "satellite-v2", json: Self.satelliteJSON)
+        case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
+        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
@@ -101,6 +101,7 @@ struct MapBridge: UIViewRepresentable {
     var northReset: Int
     var onSelectPin: (Place) -> Void
     var onLongPress: (CLLocationCoordinate2D) -> Void
+    var onMapTap: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -113,6 +114,10 @@ struct MapBridge: UIViewRepresentable {
         map.logoView.isHidden = true
         map.attributionButton.isHidden = true
         map.setCenter(CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661), zoomLevel: 11, animated: false)
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        map.addGestureRecognizer(tap)
         let longPress = UILongPressGestureRecognizer(target: context.coordinator,
                                                      action: #selector(Coordinator.handleLongPress(_:)))
         longPress.minimumPressDuration = 0.45
@@ -163,6 +168,10 @@ struct MapBridge: UIViewRepresentable {
         var didCenterOnUser = false
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            parent.onMapTap()
+        }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began, let map else { return }
