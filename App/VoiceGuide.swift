@@ -97,6 +97,32 @@ final class VoiceGuide: ObservableObject {
     /// The most human-sounding Arabic voice installed on the device:
     /// premium > enhanced > default. Users can download an enhanced
     /// Arabic voice in iOS Settings for an even more natural sound.
+    /// Arabic voices installed on the device, best quality first — the
+    /// user picks one in Settings (stored as wijhati.voiceID).
+    static var arabicVoiceInfos: [(id: String, name: String, language: String)] {
+        AVSpeechSynthesisVoice.speechVoices()
+            .filter { $0.language.hasPrefix("ar") }
+            .sorted { $0.quality.rawValue > $1.quality.rawValue }
+            .map { (id: $0.identifier, name: $0.name, language: $0.language) }
+    }
+
+    static var selectedVoice: AVSpeechSynthesisVoice? {
+        if let id = UserDefaults.standard.string(forKey: "wijhati.voiceID"),
+           let voice = AVSpeechSynthesisVoice(identifier: id) { return voice }
+        return bestArabicVoice
+    }
+
+    /// Speak a short sample in the given voice (voice-picker preview).
+    func preview(voiceID: String) {
+        synth.stopSpeaking(at: .immediate)
+        guard let voice = AVSpeechSynthesisVoice(identifier: voiceID) else { return }
+        let utterance = AVSpeechUtterance(string: "صوت المرشد")
+        utterance.voice = voice
+        utterance.rate = 0.47
+        utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
+        synth.speak(utterance)
+    }
+
     private static let bestArabicVoice: AVSpeechSynthesisVoice? = {
         let arabic = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("ar") }
         return arabic.max { $0.quality.rawValue < $1.quality.rawValue }
@@ -105,7 +131,7 @@ final class VoiceGuide: ObservableObject {
 
     private func speak(_ text: String) {
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = Self.bestArabicVoice
+        utterance.voice = Self.selectedVoice
         utterance.rate = 0.47
         utterance.pitchMultiplier = 1.0
         utterance.volume = Float(UserDefaults.standard.object(forKey: "wijhati.voiceVolume") as? Double ?? 1.0)
