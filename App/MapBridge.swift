@@ -52,6 +52,7 @@ struct MapBridge: UIViewRepresentable {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
         map.showsUserLocation = true
+        map.prefetchesTiles = true
         map.compassView.isHidden = true
         map.logoView.isHidden = true
         map.attributionButton.isHidden = true
@@ -99,6 +100,7 @@ struct MapBridge: UIViewRepresentable {
         var currentStyle: MapStyleKind
         var styleReady = false
         var lastCenterID: UUID?
+        var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -126,6 +128,7 @@ struct MapBridge: UIViewRepresentable {
         // MARK: Delegate
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             styleReady = true
+            lastLayerSignature = ""
             refreshLayers(style: style)
         }
 
@@ -209,6 +212,9 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Layers
         func refreshLayers(style: MLNStyle) {
+            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.radarTimestamp ?? -1)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
+            if signature == lastLayerSignature { return }
+            lastLayerSignature = signature
             updateLine(style: style, id: "alt-route", coords: parent.altRouteCoords,
                        color: .gray, width: 4, opacity: 0.6)
             updateLine(style: style, id: "route", coords: parent.routeCoords,
