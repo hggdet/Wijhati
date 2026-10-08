@@ -122,7 +122,25 @@ enum GeoService {
                       to: CLLocationCoordinate2D, profile: String) async -> [RouteData] {
         let all = [from] + waypoints + [to]
         let coords = all.map { "\($0.longitude),\($0.latitude)" }.joined(separator: ";")
-        let urlString = "https://router.project-osrm.org/route/v1/\(profile)/\(coords)?alternatives=true&steps=true&geometries=geojson&overview=full&continue_straight=false"
+        // router.project-osrm.org silently returns CAR routes for every
+        // profile, so use the FOSSGIS OSRM servers which run separate
+        // car / bike / foot datasets.
+        let host: String
+        switch profile {
+        case "foot": host = "https://routing.openstreetmap.de/routed-foot/route/v1/driving"
+        case "bike": host = "https://routing.openstreetmap.de/routed-bike/route/v1/driving"
+        default: host = "https://routing.openstreetmap.de/routed-car/route/v1/driving"
+        }
+        let query = "alternatives=true&steps=true&geometries=geojson&overview=full&continue_straight=false"
+        let primary = await fetchRoutes(urlString: "\(host)/\(coords)?\(query)")
+        if !primary.isEmpty { return primary }
+        if profile == "driving" {
+            return await fetchRoutes(urlString: "https://router.project-osrm.org/route/v1/driving/\(coords)?\(query)")
+        }
+        return []
+    }
+
+    private static func fetchRoutes(urlString: String) async -> [RouteData] {
         guard let url = URL(string: urlString),
               let root = await getJSON(url) as? [String: Any],
               let routes = root["routes"] as? [[String: Any]] else { return [] }
