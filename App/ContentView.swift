@@ -25,7 +25,6 @@ struct ContentView: View {
     @StateObject private var locationService = LocationService()
     @StateObject private var store = PlacesStore()
     @StateObject private var voice = VoiceGuide()
-    @StateObject private var reportsStore = ReportsStore()
     @StateObject private var community = CommunityStore()
     @State private var showAssistant = false
     @State private var showAR = false
@@ -37,7 +36,6 @@ struct ContentView: View {
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
     @AppStorage("wijhati.appearance") private var appearance = "auto"
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
-    @AppStorage("wijhati.notifReports") private var notifReports = true
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
 
     @State private var query = ""
@@ -78,21 +76,10 @@ struct ContentView: View {
     @State private var showIntro = true
     @State private var locStage = 0
     @State private var bearingRequest: BearingRequest?
-    @State private var showReportSheet = false
-    @State private var reportSelectedID: String?
-    @State private var reportThanks = false
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
-        let mine = Set(reportsStore.activeReports.map { $0.id })
-        let remoteReports = community.remoteReports.filter { !mine.contains($0.id) }
-        return pins + reportsStore.activeReports.map { $0.asPlace() }
-            + remoteReports.map { $0.asPlace() }
-            + community.allPlaces.map { $0.asPlace() }
-    }
-    private var allActiveReports: [RoadReport] {
-        let mine = Set(reportsStore.activeReports.map { $0.id })
-        return reportsStore.activeReports + community.remoteReports.filter { !mine.contains($0.id) }
+        pins + community.allPlaces.map { $0.asPlace() }
     }
     private var schemeOverride: ColorScheme? {
         if appearance == "dark" { return .dark }
@@ -161,23 +148,8 @@ struct ContentView: View {
                 statusPills
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
-                if reportThanks {
-                    Text("شكراً! بلاغك انحفظ ويظهر على الخريطة 🙏")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .glass(cornerRadius: 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
                 if !searchFocused {
                 HStack {
-                    Button { showReportSheet = true } label: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(.orange)
-                            .frame(width: 52, height: 52)
-                    }
-                    .glass(cornerRadius: 26)
-
                     Spacer()
 
                     Button { advanceLocationStage() } label: {
@@ -234,8 +206,7 @@ struct ContentView: View {
             if url.host == "work", let workPlace { select(workPlace); Task { await computeRoute() } }
         }
         .sheet(isPresented: $showAssistant) {
-            AssistantView(userLocation: locationService.location?.coordinate,
-                          reports: allActiveReports) { place in
+            AssistantView(userLocation: locationService.location?.coordinate) { place in
                 select(place)
             }
         }
@@ -248,7 +219,6 @@ struct ContentView: View {
         .task {
             await community.refresh()
         }
-        .sheet(isPresented: $showReportSheet) { reportSheet }
         .fullScreenCover(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
@@ -376,9 +346,7 @@ struct ContentView: View {
 
     private var bottomStack: some View {
         VStack(spacing: 8) {
-            if let rid = reportSelectedID, let report = reportsStore.activeReports.first(where: { $0.id == rid }) {
-                reportCard(report)
-            } else if let place = selected, selectedRoute == nil { placeCard(place) }
+            if let place = selected, selectedRoute == nil { placeCard(place) }
             if let route = selectedRoute { routeBar(route) }
             if !stops.isEmpty { stopsBar }
             if let routeNotice, selectedRoute == nil {
@@ -618,7 +586,7 @@ struct ContentView: View {
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
                 }
-                if !place.id.hasPrefix("report-") && !place.id.hasPrefix("community-") {
+                if !place.id.hasPrefix("community-") {
                     Button { publishPlace = place } label: {
                         Label("نشر محلي", systemImage: "mappin.and.ellipse")
                             .font(.caption.weight(.medium))
@@ -899,7 +867,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.16").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.17").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -966,8 +934,6 @@ struct ContentView: View {
     private var notificationsPage: some View {
         Form {
             Section {
-                Toggle("تنبيه عند الاقتراب من بلاغ طريق", isOn: $notifReports)
-                    .onChange(of: notifReports) { _, on in if on { Notify.requestPermission() } }
                 Toggle("تنبيه عند الاقتراب من مكان محفوظ (300م)", isOn: $notifSaved)
                     .onChange(of: notifSaved) { _, on in if on { Notify.requestPermission() } }
             } footer: {
@@ -983,85 +949,9 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - Road reports UI
 
-    private var reportSheet: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 18) {
-                    ForEach(reportKinds, id: \.key) { kind in
-                        Button { submitReport(kind) } label: {
-                            VStack(spacing: 7) {
-                                Text(kind.emoji).font(.system(size: 34))
-                                    .frame(width: 64, height: 64)
-                                    .glass(cornerRadius: 32)
-                                Text(kind.title).font(.caption.weight(.medium)).foregroundStyle(.primary)
-                            }
-                        }
-                    }
-                }
-                .padding(18)
-            }
-            .navigationTitle("شنو شفت بالطريق؟")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showReportSheet = false } } }
-        }
-        .presentationDetents([.medium, .large])
-    }
 
-    private func reportCard(_ report: RoadReport) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Text(report.kindInfo.emoji).font(.system(size: 30))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(report.kindInfo.title).font(.headline)
-                    Text("بلاغ طريق • \(report.ageText)").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { reportSelectedID = nil } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-            }
-            HStack(spacing: 7) {
-                Button {
-                    reportsStore.confirm(report.id)
-                    reportSelectedID = nil
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                } label: {
-                    Label("بعده موجود", systemImage: "hand.thumbsup.fill")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 11).padding(.vertical, 8)
-                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
-                }
-                Button {
-                    reportsStore.remove(report.id)
-                    reportSelectedID = nil
-                } label: {
-                    Label("زال خلاص", systemImage: "hand.thumbsdown")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(Color.white.opacity(0.14), in: Capsule())
-                }
-            }
-        }
-        .padding(12)
-        .glass(cornerRadius: 20)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
 
-    private func submitReport(_ kind: ReportKind) {
-        let coordinate = locationService.location?.coordinate
-            ?? selected?.coordinate
-            ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
-        reportsStore.add(kind: kind.key, at: coordinate)
-        showReportSheet = false
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        withAnimation { reportThanks = true }
-        Task {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            withAnimation { reportThanks = false }
-        }
-    }
 
     private func checkProximity(_ loc: CLLocation) {
         let now = Date()
@@ -1069,16 +959,6 @@ struct ContentView: View {
             if let last = alertCooldown[key], now.timeIntervalSince(last) < 900 { return true }
             alertCooldown[key] = now
             return false
-        }
-        if notifReports {
-            for report in reportsStore.activeReports {
-                let d = loc.distance(from: CLLocation(latitude: report.latitude, longitude: report.longitude))
-                if d < 600, !cooling("rep-\(report.id)") {
-                    let text = "تنبيه: \(report.kindInfo.title) على بعد \(fmtDist(d))"
-                    voice.announce(text)
-                    Notify.fire(title: "وجهتي — تنبيه طريق", body: text)
-                }
-            }
         }
         if notifSaved {
             for saved in store.places {
@@ -1142,13 +1022,6 @@ struct ContentView: View {
     private func select(_ place: Place) {
         searchFocused = false
         routeNotice = nil
-        if place.id.hasPrefix("report-") {
-            reportSelectedID = String(place.id.dropFirst("report-".count))
-            selected = nil
-            suggestions = []
-            return
-        }
-        reportSelectedID = nil
         selected = place
         suggestions = []
         if !pins.contains(place) { pins = [place] }
