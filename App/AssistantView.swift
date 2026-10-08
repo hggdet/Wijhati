@@ -7,7 +7,7 @@ struct AssistantView: View {
     var onSelectPlace: (Place) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [AMsg] = [
-        AMsg(text: "هلا بيك 👋 آني مساعد وجهتي المحلي. اسألني عن أقرب مكان، الطقس، أو اكتب اسم أي مكان تريده.", user: false, places: nil)
+        AMsg(text: "هلا بيك 👋 آني مساعد وجهتي المحلي. اسألني عن أقرب مكان، الطقس، أو اكتب اسم أي مكان تريده.".loc, user: false, places: nil)
     ]
     @State private var input = ""
     @State private var busy = false
@@ -19,7 +19,7 @@ struct AssistantView: View {
         var places: [Place]?
     }
 
-    private let chips = ["أقرب صيدلية", "أقرب محطة وقود", "شنو الطقس؟", "وين أني؟"]
+    private let chips: [(label: String, query: String)] = [("أقرب صيدلية", "أقرب صيدلية"), ("أقرب محطة وقود", "أقرب محطة وقود"), ("شنو الطقس؟", "شنو الطقس؟"), ("وين أني؟", "وين أني؟")]
 
     var body: some View {
         NavigationStack {
@@ -67,7 +67,7 @@ struct AssistantView: View {
                             if busy {
                                 HStack(spacing: 6) {
                                     ProgressView().controlSize(.small)
-                                    Text("دا أفكر…").font(.caption).foregroundStyle(.secondary)
+                                    Text("دا أفكر…".loc).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -79,8 +79,8 @@ struct AssistantView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
-                        ForEach(chips, id: \.self) { chip in
-                            Button(chip) { send(chip) }
+                        ForEach(chips, id: \.query) { chip in
+                            Button(chip.label.loc) { send(chip.query) }
                                 .font(.caption.weight(.medium))
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Color.blue.opacity(0.12), in: Capsule())
@@ -88,7 +88,7 @@ struct AssistantView: View {
                     }.padding(.horizontal, 14).padding(.vertical, 6)
                 }
                 HStack(spacing: 8) {
-                    TextField("اسأل أو اكتب اسم مكان…", text: $input)
+                    TextField("اسأل أو اكتب اسم مكان…".loc, text: $input)
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 12).padding(.vertical, 10)
                         .background(Color.secondary.opacity(0.12), in: Capsule())
@@ -100,11 +100,11 @@ struct AssistantView: View {
                 }
                 .padding(12)
             }
-            .navigationTitle("المساعد المحلي")
+            .navigationTitle("المساعد المحلي".loc)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("إغلاق") { dismiss() }
+                    Button("إغلاق".loc) { dismiss() }
                 }
             }
         }
@@ -142,7 +142,7 @@ struct AssistantView: View {
         if let hit = catMap.first(where: { entry in entry.words.contains { t.contains($0) } }),
            let cat = categories.first(where: { $0.key == hit.key }) {
             guard let userLocation else {
-                return AMsg(text: "فعّل الموقع حتى أكدر ألكي الأقرب إلك.", user: false, places: nil)
+                return AMsg(text: "فعّل الموقع حتى أكدر ألكي الأقرب إلك.".loc, user: false, places: nil)
             }
             let found = await GeoService.nearby(amenity: cat.key, group: cat.group, near: userLocation)
             if found.isEmpty {
@@ -154,26 +154,26 @@ struct AssistantView: View {
         // 2) Weather
         if t.contains("طقس") || t.contains("مطر") || t.contains("حار") || t.contains("جو") {
             guard let userLocation else {
-                return AMsg(text: "فعّل الموقع حتى أجيبلك الطقس.", user: false, places: nil)
+                return AMsg(text: "فعّل الموقع حتى أجيبلك الطقس.".loc, user: false, places: nil)
             }
             if let w = await GeoService.weather(lat: userLocation.latitude, lon: userLocation.longitude) {
                 return AMsg(text: "الطقس عندك هسه: \(w.label)، الحرارة \(Int(w.temperature.rounded()))°. الشروق \(w.sunrise) والغروب \(w.sunset).", user: false, places: nil)
             }
-            return AMsg(text: "ما كدرت أجيب الطقس هسه، جرّب بعد شوية.", user: false, places: nil)
+            return AMsg(text: "ما كدرت أجيب الطقس هسه، جرّب بعد شوية.".loc, user: false, places: nil)
         }
         // 3) Where am I
         if t.contains("وين اني") || t.contains("وين أني") || t.contains("موقعي") || t.contains("شارع") {
             guard let userLocation else {
-                return AMsg(text: "فعّل الموقع أولاً.", user: false, places: nil)
+                return AMsg(text: "فعّل الموقع أولاً.".loc, user: false, places: nil)
             }
             if let street = await GeoService.currentStreet(lat: userLocation.latitude, lon: userLocation.longitude) {
                 return AMsg(text: "أنت هسه قريب من: \(street)", user: false, places: nil)
             }
-            return AMsg(text: "موقعك معروف عندي بس ما كدرت أحدد اسم الشارع.", user: false, places: nil)
+            return AMsg(text: "موقعك معروف عندي بس ما كدرت أحدد اسم الشارع.".loc, user: false, places: nil)
         }
         // 4) Greeting
         if t.contains("سلام") || t.contains("هلا") || t.contains("مرحبا") {
-            return AMsg(text: "هلا وعليكم السلام 🌹 اسألني: «أقرب صيدلية» أو «شنو الطقس؟» أو اكتب اسم مكان.", user: false, places: nil)
+            return AMsg(text: "هلا وعليكم السلام 🌹 اسألني: «أقرب صيدلية» أو «شنو الطقس؟» أو اكتب اسم مكان.".loc, user: false, places: nil)
         }
         // 5) Fallback: treat as a place search
         let found = await GeoService.search(t, near: userLocation, limit: 5)
