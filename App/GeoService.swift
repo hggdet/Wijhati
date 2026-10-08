@@ -165,11 +165,27 @@ enum GeoService {
         }
         let query = "alternatives=true&steps=true&geometries=geojson&overview=full&continue_straight=false"
         let primary = await fetchRoutes(urlString: "\(host)/\(coords)?\(query)")
-        if !primary.isEmpty { return primary }
+        if !primary.isEmpty { return saneDurations(primary, profile: profile) }
         if profile == "driving" {
             return await fetchRoutes(urlString: "https://router.project-osrm.org/route/v1/driving/\(coords)?\(query)")
         }
         return []
+    }
+
+    /// Safety net: if a server ever returns car-like times for walking or
+    /// cycling (impossible average speed), recompute the duration from the
+    /// route distance at a realistic speed for the mode.
+    private static func saneDurations(_ routes: [RouteData], profile: String) -> [RouteData] {
+        guard profile == "foot" || profile == "bike" else { return routes }
+        let capKmh = profile == "foot" ? 9.0 : 32.0
+        let cruiseKmh = profile == "foot" ? 5.0 : 16.0
+        return routes.map { route in
+            let kmh = route.distance / max(route.duration, 1) * 3.6
+            guard kmh > capKmh else { return route }
+            var fixed = route
+            fixed.duration = route.distance / (cruiseKmh / 3.6)
+            return fixed
+        }
     }
 
     private static func fetchRoutes(urlString: String) async -> [RouteData] {
