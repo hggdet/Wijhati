@@ -182,12 +182,12 @@ struct ContentView: View {
             .padding(.bottom, 8)
 
             if voice.active { pocketOverlay }
-            if showIntro { introOverlay }
+            if showIntro { IntroView() }
         }
         .onAppear {
             locationService.request()
             Task {
-                try? await Task.sleep(nanoseconds: 1_900_000_000)
+                try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
             }
             if let loc = locationService.location {
@@ -224,40 +224,7 @@ struct ContentView: View {
         }
     }
 
-    private var introOverlay: some View {
-        ZStack {
-            LinearGradient(colors: [Color(red: 0.98, green: 0.45, blue: 0.75),
-                                    Color(red: 0.55, green: 0.4, blue: 0.95),
-                                    Color(red: 0.25, green: 0.6, blue: 0.95)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-            VStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(.white.opacity(0.22)).frame(width: 118, height: 118)
-                    Image(systemName: "mappin")
-                        .font(.system(size: 54, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("W")
-                        .font(.system(size: 30, weight: .black))
-                        .foregroundStyle(Color(red: 0.1, green: 0.75, blue: 0.6))
-                        .offset(y: -8)
-                }
-                Text("وجهتي")
-                    .font(.system(size: 40, weight: .black))
-                    .foregroundStyle(.white)
-                Text("خرائط وملاحة عربية أنيقة")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
-                Spacer()
-                Text("من تطوير عبدالباسط خضير")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(.bottom, 26)
-            }
-            .padding(.top, 90)
-        }
-        .transition(.opacity)
-    }
+    // (intro moved to IntroView below)
 
     // MARK: - Top bar (weather + compass)
 
@@ -806,7 +773,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.10").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.11").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -1148,4 +1115,140 @@ struct ShareSheet: UIViewControllerRepresentable {
         UIActivityViewController(activityItems: [text], applicationActivities: nil)
     }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Animated launch intro
+
+private struct TriangleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+private struct IntroView: View {
+    @State private var dropped = false
+    @State private var pulse = false
+    @State private var showTitle = false
+    @State private var showTagline = false
+    @State private var routeProgress: CGFloat = 0
+    @State private var loadProgress: CGFloat = 0
+    @State private var drift = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.99, green: 0.44, blue: 0.72),
+                                    Color(red: 0.56, green: 0.38, blue: 0.96),
+                                    Color(red: 0.22, green: 0.56, blue: 0.97)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+
+            // drifting aurora light blobs
+            Circle().fill(Color(red: 1.0, green: 0.62, blue: 0.85).opacity(0.55))
+                .frame(width: 300, height: 300).blur(radius: 70)
+                .offset(x: drift ? -110 : -60, y: drift ? -330 : -280)
+            Circle().fill(Color(red: 0.35, green: 0.75, blue: 1.0).opacity(0.5))
+                .frame(width: 320, height: 320).blur(radius: 80)
+                .offset(x: drift ? 120 : 70, y: drift ? 300 : 250)
+
+            // route line drawing itself across the lower screen
+            RouteLineShape()
+                .trim(from: 0, to: routeProgress)
+                .stroke(Color.white.opacity(0.4), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 9]))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Spacer()
+                ZStack {
+                    // sonar pulse rings
+                    ForEach(0..<2, id: \.self) { i in
+                        Circle()
+                            .stroke(Color.white.opacity(pulse ? 0 : 0.45), lineWidth: 2)
+                            .frame(width: 120, height: 120)
+                            .scaleEffect(pulse ? 2.1 : 0.9)
+                            .animation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(Double(i) * 1.0), value: pulse)
+                    }
+                    // ground shadow
+                    Ellipse().fill(Color.black.opacity(0.20))
+                        .frame(width: 64, height: 13).blur(radius: 5)
+                        .offset(y: 66)
+                        .scaleEffect(dropped ? 1 : 0.5)
+                    // the pin: white teardrop with the teal W
+                    VStack(spacing: -13) {
+                        ZStack {
+                            Circle()
+                                .fill(LinearGradient(colors: [.white, Color(red: 0.92, green: 0.94, blue: 1.0)],
+                                                     startPoint: .top, endPoint: .bottom))
+                                .frame(width: 74, height: 74)
+                                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+                            Text("W")
+                                .font(.system(size: 37, weight: .black))
+                                .foregroundStyle(Color(red: 0.05, green: 0.72, blue: 0.58))
+                        }
+                        TriangleShape()
+                            .fill(LinearGradient(colors: [Color(red: 0.92, green: 0.94, blue: 1.0), .white],
+                                                 startPoint: .bottom, endPoint: .top))
+                            .frame(width: 42, height: 36)
+                    }
+                    .offset(y: dropped ? 0 : -190)
+                    .opacity(dropped ? 1 : 0)
+                }
+                .frame(height: 170)
+
+                Text("وجهتي")
+                    .font(.system(size: 44, weight: .black))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+                    .opacity(showTitle ? 1 : 0)
+                    .offset(y: showTitle ? 0 : 26)
+                    .padding(.top, 10)
+
+                Text("خرائط وملاحة عربية أنيقة")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .opacity(showTagline ? 1 : 0)
+                    .offset(y: showTagline ? 0 : 14)
+                    .padding(.top, 7)
+
+                // loading route bar
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.28)).frame(width: 132, height: 5)
+                    Capsule().fill(Color.white).frame(width: 132 * loadProgress, height: 5)
+                }
+                .padding(.top, 30)
+                .opacity(showTagline ? 1 : 0)
+
+                Spacer()
+                Text("من تطوير عبدالباسط خضير")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .opacity(showTagline ? 1 : 0)
+                    .padding(.bottom, 30)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) { drift = true }
+            withAnimation(.spring(response: 0.75, dampingFraction: 0.58).delay(0.15)) { dropped = true }
+            pulse = true
+            withAnimation(.easeOut(duration: 0.55).delay(0.55)) { showTitle = true }
+            withAnimation(.easeOut(duration: 0.55).delay(0.8)) { showTagline = true }
+            withAnimation(.easeInOut(duration: 1.7).delay(0.3)) { routeProgress = 1 }
+            withAnimation(.easeInOut(duration: 1.9).delay(0.35)) { loadProgress = 1 }
+        }
+    }
+}
+
+private struct RouteLineShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX - 20, y: rect.maxY * 0.78))
+        p.addCurve(to: CGPoint(x: rect.maxX + 20, y: rect.maxY * 0.60),
+                   control1: CGPoint(x: rect.maxX * 0.35, y: rect.maxY * 0.66),
+                   control2: CGPoint(x: rect.maxX * 0.62, y: rect.maxY * 0.86))
+        return p
+    }
 }
