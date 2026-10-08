@@ -1,115 +1,125 @@
 import SwiftUI
-import MapKit
 import CoreLocation
 import UIKit
 
-struct CategoryItem: Identifiable {
-    var id: String { title }
+struct Category: Identifiable {
+    var id: String { key }
+    var key: String
+    var group: String
     var title: String
-    var query: String
     var icon: String
 }
 
+let categories: [Category] = [
+    Category(key: "restaurant", group: "amenity", title: "مطاعم", icon: "fork.knife"),
+    Category(key: "cafe", group: "amenity", title: "كافيهات", icon: "cup.and.saucer.fill"),
+    Category(key: "hotel", group: "tourism", title: "فنادق", icon: "bed.double.fill"),
+    Category(key: "hospital", group: "amenity", title: "مستشفيات", icon: "cross.case.fill"),
+    Category(key: "pharmacy", group: "amenity", title: "صيدليات", icon: "pills.fill"),
+    Category(key: "fuel", group: "amenity", title: "وقود", icon: "fuelpump.fill"),
+    Category(key: "park", group: "leisure", title: "حدائق", icon: "tree.fill"),
+    Category(key: "supermarket", group: "shop", title: "تسوق", icon: "cart.fill"),
+]
+
 struct ContentView: View {
-    @EnvironmentObject var store: PlacesStore
-    @EnvironmentObject var location: LocationService
-    @StateObject private var search = SearchService()
+    @StateObject private var locationService = LocationService()
+    @StateObject private var store = PlacesStore()
+    @StateObject private var tripsStore = TripsStore()
     @StateObject private var voice = VoiceGuide()
 
-    @State private var camera: MapCameraPosition = .region(
-        MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661),
-                           latitudinalMeters: 20000, longitudinalMeters: 20000))
-    @State private var mapStyleKind: Int = 0
-    @State private var selected: PlaceResult?
-    @State private var routes: [MKRoute] = []
-    @State private var routeIndex: Int = 0
+    @State private var query = ""
+    @State private var suggestions: [Place] = []
+    @State private var pins: [Place] = []
+    @State private var selected: Place?
+    @State private var stops: [Place] = []
     @State private var transport: TransportChoice = .driving
-    @State private var nearbyResults: [PlaceResult] = []
-    @State private var activeCategory: String?
+    @State private var routes: [RouteData] = []
+    @State private var selectedRouteIndex = 0
+    @State private var searching = false
+    @State private var loadingRoute = false
+
+    @State private var styleKind: MapStyleKind = .standard
+    @State private var followUser = false
+    @State private var centerRequest: CenterRequest?
+
     @State private var showSaved = false
-    @State private var navigating = false
-    @State private var isRouting = false
-    @State private var routeError: String?
+    @State private var showTrips = false
+    @State private var showLayers = false
+    @State private var show3D = false
+    @State private var radarOn = false
+    @State private var radarTS: Int?
+    @State private var isoMinutes: Int = 0
+    @State private var isoPolygon: [CLLocationCoordinate2D] = []
 
-    private let categories: [CategoryItem] = [
-        CategoryItem(title: "مطاعم", query: "restaurant", icon: "fork.knife"),
-        CategoryItem(title: "كافيهات", query: "cafe", icon: "cup.and.saucer.fill"),
-        CategoryItem(title: "فنادق", query: "hotel", icon: "bed.double.fill"),
-        CategoryItem(title: "مستشفيات", query: "hospital", icon: "cross.case.fill"),
-        CategoryItem(title: "صيدليات", query: "pharmacy", icon: "pills.fill"),
-        CategoryItem(title: "محطات وقود", query: "gas station", icon: "fuelpump.fill"),
-        CategoryItem(title: "حدائق", query: "park", icon: "tree.fill"),
-        CategoryItem(title: "تسوق", query: "mall", icon: "bag.fill")
-    ]
+    @State private var weather: GeoService.WeatherNow?
+    @State private var elevations: [Double] = []
+    @State private var shareItem: SharePayload?
+    @State private var recordElapsed: TimeInterval = 0
+    @State private var nowTick = Date()
 
-    private var currentRoute: MKRoute? {
-        routes.indices.contains(routeIndex) ? routes[routeIndex] : nil
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var selectedRoute: RouteData? {
+        routes.indices.contains(selectedRouteIndex) ? routes[selectedRouteIndex] : nil
     }
-
-    private var mapStyle: MapStyle {
-        switch mapStyleKind {
-        case 1: return .hybrid(elevation: .realistic)
-        case 2: return .imagery(elevation: .realistic)
-        default: return .standard(elevation: .realistic, emphasis: .muted)
-        }
-    }
-
-    private var referenceCoordinate: CLLocationCoordinate2D {
-        location.location?.coordinate ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
+    private var altCoords: [CLLocationCoordinate2D] {
+        routes.enumerated().filter { $0.offset != selectedRouteIndex }.first?.element.coordinates ?? []
     }
 
     var body: some View {
         ZStack(alignment: .top) {
-            Map(position: $camera) {
-                UserAnnotation()
-                if let selected {
-                    Marker(selected.name, coordinate: selected.coordinate)
-                        .tint(.pink)
-                }
-                ForEach(store.places) { place in
-                    Marker(place.name, coordinate: place.coordinate)
-                        .tint(place.isFavorite ? .orange : .teal)
-                }
-                ForEach(nearbyResults) { place in
-                    Marker(place.name, coordinate: place.coordinate)
-                        .tint(.blue)
-                }
-                if let route = currentRoute {
-                    MapPolyline(route.polyline)
-                        .stroke(.blue, lineWidth: 6)
-                }
-            }
-            .mapStyle(mapStyle)
+            MapBridge(
+                pins: pins,
+                routeCoords: selectedRoute?.coordinates ?? [],
+                altRouteCoords: altCoords,
+                tripCoords: locationService.recordedPoints.map { $0.coordinate },
+                isoPolygon: isoPolygon,
+                styleKind: styleKind,
+                show3D: show3D,
+                radarTimestamp: radarOn ? radarTS : nil,
+                followUser: followUser,
+                centerRequest: centerRequest,
+                onSelectPin: { place in select(place) }
+            )
             .ignoresSafeArea()
 
-            VStack(spacing: 10) {
+            VStack(spacing: 8) {
                 searchBar
-                if !search.query.isEmpty && !search.completions.isEmpty {
-                    completionsPanel
-                }
+                if !suggestions.isEmpty { suggestionsList }
                 categoryChips
+                if !stops.isEmpty { stopsBar }
                 Spacer()
-                sideControls
-                bottomPanel
+                if locationService.recording { recordingBar }
+                if let route = selectedRoute { routeBar(route) }
+                sideControlsRow
+                if let place = selected, selectedRoute == nil { placeCard(place) }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
+            .padding(.horizontal, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
 
-            if voice.active {
-                pocketOverlay
-            }
+            if voice.active { pocketOverlay }
         }
         .onAppear {
-            location.request()
-        }
-        .onChange(of: location.location) { _, newValue in
-            if navigating, let loc = newValue {
-                voice.update(location: loc)
-                if !voice.active {
-                    navigating = false
-                }
+            locationService.request()
+            if let loc = locationService.location {
+                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
             }
+        }
+        .onChange(of: locationService.location) { _, newValue in
+            if let loc = newValue { voice.update(userLocation: loc) }
+        }
+        .onReceive(tick) { date in
+            nowTick = date
+            if let start = locationService.recordStartedAt {
+                recordElapsed = date.timeIntervalSince(start)
+            }
+        }
+        .sheet(isPresented: $showSaved) { savedSheet }
+        .sheet(isPresented: $showTrips) { tripsSheet }
+        .sheet(isPresented: $showLayers) { layersSheet }
+        .sheet(item: $shareItem) { payload in
+            ShareSheet(text: payload.text)
         }
     }
 
@@ -117,423 +127,523 @@ struct ContentView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("ابحث عن مكان أو عنوان", text: $search.query)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-                .onSubmit { Task { await runTextSearch() } }
-            if !search.query.isEmpty {
-                Button {
-                    search.query = ""
-                } label: {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("ابحث عن مكان أو عنوان", text: $query)
+                .font(.subheadline)
+                .onSubmit { Task { await runSearch() } }
+                .onChange(of: query) { _, newValue in
+                    Task {
+                        try? await Task.sleep(nanoseconds: 350_000_000)
+                        guard query == newValue else { return }
+                        if newValue.trimmingCharacters(in: .whitespaces).count >= 3 {
+                            suggestions = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
+                        } else {
+                            suggestions = []
+                        }
+                    }
+                }
+            if searching { ProgressView() }
+            if !query.isEmpty {
+                Button { query = ""; suggestions = [] } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .glass(cornerRadius: 26)
-        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glass(cornerRadius: 22)
     }
 
-    private var completionsPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(search.completions.prefix(6), id: \.title) { item in
-                Button {
-                    Task {
-                        if let place = await search.resolve(item) {
-                            selectPlace(place)
-                            search.query = ""
+    private var suggestionsList: some View {
+        VStack(spacing: 0) {
+            ForEach(suggestions) { place in
+                Button { select(place); suggestions = [] } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin.circle.fill").foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                            if !place.address.isEmpty {
+                                Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
                         }
+                        Spacer()
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title).font(.headline).foregroundStyle(.primary)
-                        if !item.subtitle.isEmpty {
-                            Text(item.subtitle).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .contentShape(Rectangle())
                 }
                 Divider().opacity(0.4)
             }
         }
-        .glass(cornerRadius: 22)
+        .glass(cornerRadius: 18)
     }
 
     private var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 ForEach(categories) { cat in
-                    Button {
-                        Task { await loadCategory(cat) }
-                    } label: {
-                        Label(cat.title, systemImage: cat.icon)
-                            .font(.subheadline.weight(.medium))
+                    Button { Task { await loadCategory(cat) } } label: {
+                        Label(cat.title, systemImage: cat.icon).fixedSize()
                     }
-                    .buttonStyle(GlassButtonStyle())
-                    .foregroundStyle(activeCategory == cat.title ? Color.orange : Color.primary)
+                    .buttonStyle(ChipButtonStyle())
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.horizontal, 2).padding(.vertical, 2)
         }
     }
 
-    private var sideControls: some View {
-        HStack {
+    private var stopsBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Image(systemName: "flag.fill").font(.caption).foregroundStyle(.orange)
+                ForEach(stops) { stop in
+                    HStack(spacing: 4) {
+                        Text(stop.name).font(.caption).lineLimit(1)
+                        Button { stops.removeAll { $0.id == stop.id }; Task { await computeRoute() } } label: {
+                            Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .glass(cornerRadius: 12)
+                }
+                Button("مسح") { stops = []; Task { await computeRoute() } }
+                    .font(.caption).foregroundStyle(.red)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private var sideControlsRow: some View {
+        HStack(alignment: .bottom) {
+            VStack(spacing: 9) {
+                GlassCircleButton(icon: followUser ? "location.fill" : "location") {
+                    followUser.toggle()
+                    if followUser, let loc = locationService.location {
+                        centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+                    }
+                }
+                GlassCircleButton(icon: "square.3.layers.3d") { showLayers = true }
+                GlassCircleButton(icon: locationService.recording ? "stop.circle.fill" : "record.circle") {
+                    toggleRecording()
+                }
+                .foregroundStyle(locationService.recording ? .red : .blue)
+                GlassCircleButton(icon: "bookmark.fill") { showSaved = true }
+                GlassCircleButton(icon: "figure.walk.motion") { showTrips = true }
+            }
             Spacer()
-            VStack(spacing: 10) {
-                controlButton(icon: "location.fill") { centerOnUser() }
-                controlButton(icon: mapStyleKind == 0 ? "map" : (mapStyleKind == 1 ? "globe.americas.fill" : "photo")) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
-                        mapStyleKind = (mapStyleKind + 1) % 3
-                    }
-                }
-                controlButton(icon: showSaved ? "bookmark.fill" : "bookmark") {
-                    withAnimation { showSaved.toggle() }
-                }
+        }
+    }
+
+    // MARK: - Recording
+
+    private var recordingBar: some View {
+        HStack(spacing: 14) {
+            Circle().fill(.red).frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("تسجيل رحلة").font(.caption.weight(.bold))
+                Text("\(formatDuration(recordElapsed)) • \(formatDistance(locationService.recordedDistance))")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let loc = locationService.location {
+                Text(String(format: "%.0f كم/س", max(loc.speed, 0) * 3.6)).font(.caption.weight(.semibold))
             }
         }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .glass(cornerRadius: 16)
     }
 
-    private func controlButton(icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 44, height: 44)
-        }
-        .glass(cornerRadius: 22)
-        .shadow(color: .black.opacity(0.15), radius: 10, y: 5)
-    }
-
-    // MARK: - Bottom panels
-
-    @ViewBuilder
-    private var bottomPanel: some View {
-        if navigating, let route = currentRoute {
-            navigationCard(route)
-        } else if let selected {
-            placeCard(selected)
-        } else if showSaved {
-            savedPanel
+    private func toggleRecording() {
+        if locationService.recording {
+            if let trip = locationService.stopRecording() {
+                tripsStore.add(trip)
+            }
+        } else {
+            locationService.startRecording()
+            recordElapsed = 0
         }
     }
 
-    private func placeCard(_ place: PlaceResult) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(place.name).font(.title3.weight(.bold))
-                    if !place.address.isEmpty {
-                        Text(place.address).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let userLoc = location.location {
-                        let d = userLoc.distance(from: CLLocation(latitude: place.coordinate.latitude,
-                                                                    longitude: place.coordinate.longitude))
-                        Text("يبعد عنك \(formatDistance(d))")
-                            .font(.caption.weight(.medium)).foregroundStyle(.teal)
+    // MARK: - Route UI
+
+    private func routeBar(_ route: RouteData) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(TransportChoice.allCases) { choice in
+                    Button {
+                        transport = choice
+                        Task { await computeRoute() }
+                    } label: {
+                        Label(choice.label, systemImage: choice.icon)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 9).padding(.vertical, 6)
+                            .background(transport == choice ? Color.blue.opacity(0.85) : Color.white.opacity(0.14),
+                                        in: Capsule())
+                            .foregroundStyle(transport == choice ? .white : .primary)
                     }
                 }
                 Spacer()
-                Button {
-                    selected = nil
-                    routes = []
-                } label: {
+                Button { clearRoute() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }
-
-            Picker("وسيلة النقل", selection: $transport) {
-                ForEach(TransportChoice.allCases) { t in
-                    Label(t.label, systemImage: t.icon).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: transport) { _, _ in
-                if selected != nil { Task { await getDirections() } }
-            }
-
-            if isRouting {
-                HStack { ProgressView(); Text("جارٍ حساب المسار...").font(.caption) }
-            } else if !routes.isEmpty {
-                routeAlternatives
-            }
-            if let routeError {
-                Text(routeError).font(.caption).foregroundStyle(.red)
-            }
-
-            HStack(spacing: 8) {
-                Button {
-                    Task { await getDirections() }
-                } label: {
-                    Label("الاتجاهات", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                }
-                .buttonStyle(GlassButtonStyle())
-
-                Button {
-                    let saved = place.asSavedPlace
-                    _ = store.toggle(saved)
-                } label: {
-                    Label(store.contains(latitude: place.coordinate.latitude, longitude: place.coordinate.longitude) ? "محفوظ" : "حفظ",
-                          systemImage: store.contains(latitude: place.coordinate.latitude, longitude: place.coordinate.longitude) ? "bookmark.fill" : "bookmark")
-                }
-                .buttonStyle(GlassButtonStyle())
-
-                ShareLink(item: place.appleMapsURL) {
-                    Label("مشاركة", systemImage: "square.and.arrow.up")
-                }
-                .buttonStyle(GlassButtonStyle())
-
-                if let phone = place.phone,
-                   let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
-                    Button {
-                        UIApplication.shared.open(url)
-                    } label: {
-                        Label("اتصال", systemImage: "phone.fill")
-                    }
-                    .buttonStyle(GlassButtonStyle())
-                }
-            }
-            .font(.subheadline)
-
-            if let route = currentRoute {
-                HStack(spacing: 8) {
-                    Button {
-                        startNavigation(route)
-                    } label: {
-                        Label("ابدأ الملاحة", systemImage: "location.north.line.fill")
-                    }
-                    .buttonStyle(GlassButtonStyle())
-                    Button {
-                        voice.start(route: route)
-                    } label: {
-                        Label("ملاحة بالجيب", systemImage: "waveform")
-                    }
-                    .buttonStyle(GlassButtonStyle())
-                }
-            }
-        }
-        .padding(16)
-        .glass(cornerRadius: 28)
-        .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
-    private var routeAlternatives: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(routes.indices, id: \.self) { i in
-                let r = routes[i]
-                Button {
-                    routeIndex = i
-                } label: {
-                    HStack {
-                        Image(systemName: i == routeIndex ? "checkmark.circle.fill" : "circle")
-                        Text(r.name.isEmpty ? "مسار \(i + 1)" : r.name)
-                            .lineLimit(1)
-                        Spacer()
-                        Text("\(formatDuration(r.expectedTravelTime)) · \(formatDistance(r.distance))")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(i == routeIndex ? Color.blue.opacity(0.22) : Color.white.opacity(0.06),
-                                in: RoundedRectangle(cornerRadius: 14))
-                }
-            }
-        }
-    }
-
-    private func navigationCard(_ route: MKRoute) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "location.north.fill").foregroundStyle(.blue)
-                Text(voice.currentInstruction.isEmpty ? "اتبع المسار" : voice.currentInstruction)
-                    .font(.headline)
-                Spacer()
-            }
-            HStack(spacing: 14) {
-                Label(formatDuration(route.expectedTravelTime), systemImage: "clock")
-                Label(formatDistance(route.distance), systemImage: "road.lanes")
-                Spacer()
-                Button("إنهاء") {
-                    navigating = false
-                    voice.stop()
-                }
-                .buttonStyle(GlassButtonStyle())
-            }
-            .font(.subheadline)
-        }
-        .padding(16)
-        .glass(cornerRadius: 26)
-    }
-
-    private var savedPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("أماكني المحفوظة").font(.headline)
-            if store.places.isEmpty {
-                Text("لا توجد أماكن محفوظة بعد. ابحث عن مكان واضغط «حفظ».")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        ForEach(store.places) { place in
-                            HStack {
-                                Button {
-                                    selectPlace(PlaceResult(saved: place))
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(place.name).font(.subheadline.weight(.semibold))
-                                        Text(place.address).font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                Button {
-                                    store.setFavorite(place, !place.isFavorite)
-                                } label: {
-                                    Image(systemName: place.isFavorite ? "star.fill" : "star")
-                                        .foregroundStyle(.orange)
-                                }
-                                Button {
-                                    store.remove(place)
-                                } label: {
-                                    Image(systemName: "trash").foregroundStyle(.red)
-                                }
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+            if routes.count > 1 {
+                HStack(spacing: 6) {
+                    ForEach(routes.indices, id: \.self) { idx in
+                        Button { selectedRouteIndex = idx } label: {
+                            Text(idx == 0 ? "الأسرع: \(formatDuration(routes[idx].duration))" : "بديل: \(formatDuration(routes[idx].duration))")
+                                .font(.caption2.weight(.medium))
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(idx == selectedRouteIndex ? Color.blue.opacity(0.25) : Color.white.opacity(0.1), in: Capsule())
                         }
                     }
+                    Spacer()
                 }
-                .frame(maxHeight: 220)
+            }
+            HStack(spacing: 12) {
+                Label(formatDuration(route.duration), systemImage: "clock")
+                Label(formatDistance(route.distance), systemImage: "arrow.triangle.swap")
+                if !elevations.isEmpty {
+                    Label("▲ \(Int(elevations.max() ?? 0)) م", systemImage: "mountain.2")
+                }
+                Spacer()
+                Button {
+                    if let place = selected {
+                        voice.start(steps: route.steps, destination: place.coordinate)
+                    }
+                } label: {
+                    Label("جيب", systemImage: "waveform")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
+                }
+            }
+            .font(.caption.weight(.medium))
+            if !elevations.isEmpty { ElevationChart(values: elevations).frame(height: 34) }
+        }
+        .padding(11)
+        .glass(cornerRadius: 20)
+    }
+
+    // MARK: - Place card
+
+    private func placeCard(_ place: Place) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(place.name).font(.headline).lineLimit(2)
+                    if !place.address.isEmpty {
+                        Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                    if let loc = locationService.location {
+                        let d = loc.distance(from: CLLocation(coordinate: place.coordinate))
+                        Text("يبعد \(formatDistance(d)) عنك").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if let w = weather {
+                        Text("🌡 \(Int(w.temperature.rounded()))° \(w.label) • شروق \(w.sunrise) • غروب \(w.sunset)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Button { self.selected = nil } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 7) {
+                Button { Task { await computeRoute() } } label: {
+                    Label(loadingRoute ? "…" : "الاتجاهات", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
+                }
+                Button {
+                    let added = store.toggle(place)
+                    if added { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                } label: {
+                    Label(store.contains(place) ? "محفوظ" : "حفظ", systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14), in: Capsule())
+                }
+                Button { stops.append(place) } label: {
+                    Label("توقف", systemImage: "flag")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14), in: Capsule())
+                }
+                if let phone = place.phone, let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
+                    Link(destination: url) {
+                        Image(systemName: "phone.fill")
+                            .padding(8).background(Color.white.opacity(0.14), in: Circle())
+                    }
+                }
+                Button { shareItem = SharePayload(text: "\(place.name)\n\(place.mapsLink.absoluteString)") } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .padding(8).background(Color.white.opacity(0.14), in: Circle())
+                }
             }
         }
-        .padding(16)
-        .glass(cornerRadius: 26)
+        .padding(12)
+        .glass(cornerRadius: 20)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .task(id: place.id) {
+            weather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
+        }
     }
+
+    // MARK: - Pocket overlay
 
     private var pocketOverlay: some View {
         ZStack {
-            Color.black.opacity(0.92).ignoresSafeArea()
-            VStack(spacing: 22) {
-                Image(systemName: "location.north.fill")
-                    .font(.system(size: 90))
-                    .foregroundStyle(.teal)
-                    .rotationEffect(.degrees(-location.heading))
-                Text(voice.currentInstruction)
-                    .font(.title2.weight(.bold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal)
-                if voice.distanceToNext > 0 {
-                    Text(formatDistance(voice.distanceToNext))
-                        .font(.title.weight(.heavy))
-                        .foregroundStyle(.white)
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 18) {
+                Image(systemName: voice.arrived ? "flag.checkered" : "location.north.line.fill")
+                    .font(.system(size: 64)).foregroundStyle(.blue)
+                Text(voice.currentInstruction).font(.title3.weight(.bold))
+                    .multilineTextAlignment(.center).foregroundStyle(.white)
+                    .padding(.horizontal, 24)
+                if !voice.arrived {
+                    Text(formatDistance(voice.distanceToNext)).font(.headline).foregroundStyle(.gray)
                 }
-                Button {
-                    voice.stop()
-                    navigating = false
-                } label: {
+                Button { voice.stop() } label: {
                     Text("إيقاف الملاحة")
-                        .font(.headline)
-                        .padding(.horizontal, 26)
-                        .padding(.vertical, 14)
+                        .font(.headline).foregroundStyle(.white)
+                        .padding(.horizontal, 26).padding(.vertical, 13)
                         .background(Color.red, in: Capsule())
-                        .foregroundStyle(.white)
                 }
-                .padding(.top, 10)
+                .padding(.top, 8)
             }
         }
-        .transition(.opacity)
+    }
+
+    // MARK: - Sheets
+
+    private var savedSheet: some View {
+        NavigationStack {
+            List {
+                if store.places.isEmpty {
+                    Text("لا توجد أماكن محفوظة بعد").foregroundStyle(.secondary)
+                }
+                ForEach(store.places) { saved in
+                    Button {
+                        showSaved = false
+                        select(saved.place)
+                    } label: {
+                        HStack {
+                            Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
+                                .foregroundStyle(saved.isFavorite ? .yellow : .blue)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                if !saved.place.address.isEmpty {
+                                    Text(saved.place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button { store.setFavorite(saved, !saved.isFavorite) } label: {
+                            Label("مفضلة", systemImage: "star")
+                        }.tint(.yellow)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { store.remove(saved) } label: {
+                            Label("حذف", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("أماكني المحفوظة")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if let data = store.exportJSON(), let text = String(data: data, encoding: .utf8) {
+                        Button { shareItem = SharePayload(text: text) } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("إغلاق") { showSaved = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var tripsSheet: some View {
+        NavigationStack {
+            List {
+                if tripsStore.trips.isEmpty {
+                    Text("لا توجد رحلات مسجلة بعد. اضغط زر التسجيل وابدأ.").foregroundStyle(.secondary)
+                }
+                ForEach(tripsStore.trips) { trip in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(trip.startedAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.subheadline.weight(.medium))
+                            Text("\(formatDistance(trip.distance)) • \(formatDuration(trip.duration)) • متوسط \(String(format: "%.0f", trip.averageSpeedKmh)) كم/س")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { shareItem = SharePayload(text: trip.gpx()) } label: {
+                            Label("GPX", systemImage: "square.and.arrow.up").font(.caption)
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { tripsStore.remove(trip) } label: {
+                            Label("حذف", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("رحلاتي")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showTrips = false } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var layersSheet: some View {
+        NavigationStack {
+            Form {
+                Section("نمط الخريطة") {
+                    Picker("النمط", selection: $styleKind) {
+                        ForEach(MapStyleKind.allCases, id: \.self) { kind in
+                            Text(kind.label).tag(kind)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section("طبقات") {
+                    Toggle("أبنية ثلاثية الأبعاد", isOn: $show3D)
+                    Toggle("رادار المطر الحي", isOn: $radarOn)
+                        .onChange(of: radarOn) { _, on in
+                            if on { Task { radarTS = await GeoService.latestRadarTimestamp() } }
+                        }
+                }
+                Section("منطقة الوصول من موقعي") {
+                    Picker("المدة", selection: $isoMinutes) {
+                        Text("إيقاف").tag(0)
+                        Text("10 د").tag(10)
+                        Text("20 د").tag(20)
+                        Text("30 د").tag(30)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: isoMinutes) { _, minutes in
+                        Task { await updateIsochrone(minutes: minutes) }
+                    }
+                }
+            }
+            .navigationTitle("الطبقات والمميزات")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showLayers = false } } }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Actions
 
-    private func centerOnUser() {
-        if let loc = location.location {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                camera = .region(MKCoordinateRegion(center: loc.coordinate,
-                                                    latitudinalMeters: 2500,
-                                                    longitudinalMeters: 2500))
-            }
-        } else {
-            location.request()
-        }
-    }
-
-    private func selectPlace(_ place: PlaceResult) {
+    private func select(_ place: Place) {
         selected = place
+        suggestions = []
+        if !pins.contains(place) { pins = [place] }
+        centerRequest = CenterRequest(coordinate: place.coordinate, zoom: 15)
+        followUser = false
+    }
+
+    private func runSearch() async {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        searching = true
+        let results = await GeoService.search(text, near: locationService.location?.coordinate)
+        searching = false
+        pins = results
+        suggestions = []
+        if let first = results.first { select(first); pins = results }
+    }
+
+    private func loadCategory(_ cat: Category) async {
+        guard let loc = locationService.location else { return }
+        searching = true
+        let results = await GeoService.nearby(amenity: cat.key, group: cat.group, near: loc.coordinate)
+        searching = false
+        pins = results
+        if let first = results.first {
+            centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
+            selected = nil
+            _ = first
+        }
+    }
+
+    private func computeRoute() async {
+        guard let origin = locationService.location?.coordinate, let dest = selected else { return }
+        loadingRoute = true
+        let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
+                                            to: dest.coordinate, profile: transport.osrmProfile)
+        loadingRoute = false
+        routes = result
+        selectedRouteIndex = 0
+        elevations = []
+        if let first = result.first {
+            elevations = await GeoService.elevations(for: first.coordinates)
+        }
+    }
+
+    private func clearRoute() {
         routes = []
-        routeError = nil
-        showSaved = false
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-            camera = .region(MKCoordinateRegion(center: place.coordinate,
-                                                latitudinalMeters: 2200,
-                                                longitudinalMeters: 2200))
-        }
+        elevations = []
+        voice.stop()
     }
 
-    private func runTextSearch() async {
-        let region = MKCoordinateRegion(center: referenceCoordinate,
-                                        latitudinalMeters: 60000,
-                                        longitudinalMeters: 60000)
-        let results = await search.searchText(search.query, near: region)
-        if let first = results.first {
-            nearbyResults = results
-            selectPlace(first)
+    private func updateIsochrone(minutes: Int) async {
+        guard minutes > 0, let loc = locationService.location?.coordinate else {
+            isoPolygon = []
+            return
         }
+        isoPolygon = await GeoService.isochrone(center: loc, minutes: minutes,
+                                                costing: transport == .walking ? "pedestrian" : "auto")
     }
+}
 
-    private func loadCategory(_ category: CategoryItem) async {
-        activeCategory = category.title
-        let results = await search.nearby(categoryQuery: category.query, near: referenceCoordinate)
-        nearbyResults = results
-        if let first = results.first {
-            withAnimation {
-                camera = .region(MKCoordinateRegion(center: first.coordinate,
-                                                    latitudinalMeters: 6000,
-                                                    longitudinalMeters: 6000))
-            }
+struct GlassCircleButton: View {
+    var icon: String
+    var action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+                .frame(width: 42, height: 42)
         }
+        .glass(cornerRadius: 21)
     }
+}
 
-    private func getDirections() async {
-        guard let destination = selected else { return }
-        isRouting = true
-        routeError = nil
-        defer { isRouting = false }
-
-        let request = MKDirections.Request()
-        if let userLoc = location.location {
-            request.source = MKMapItem(placemark: MKPlacemark(coordinate: userLoc.coordinate))
-        } else {
-            request.source = MKMapItem(placemark: MKPlacemark(coordinate: referenceCoordinate))
-        }
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
-        request.transportType = transport.mkType
-        request.requestsAlternateRoutes = true
-
-        do {
-            let response = try await MKDirections(request: request).calculate()
-            routes = response.routes.sorted { $0.expectedTravelTime < $1.expectedTravelTime }
-            routeIndex = 0
-            if let route = routes.first {
-                withAnimation {
-                    camera = .rect(route.polyline.boundingMapRect.insetBy(dx: -3000, dy: -3000))
+struct ElevationChart: View {
+    var values: [Double]
+    var body: some View {
+        GeometryReader { geo in
+            let minV = values.min() ?? 0
+            let maxV = values.max() ?? 1
+            let range = max(maxV - minV, 1)
+            Path { path in
+                for (i, v) in values.enumerated() {
+                    let x = geo.size.width * CGFloat(i) / CGFloat(max(values.count - 1, 1))
+                    let y = geo.size.height - CGFloat((v - minV) / range) * (geo.size.height - 4) - 2
+                    if i == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
                 }
             }
-        } catch {
-            routeError = "تعذّر حساب المسار لهذه الوجهة بهذه الوسيلة."
+            .stroke(Color.teal, lineWidth: 1.6)
         }
     }
+}
 
-    private func startNavigation(_ route: MKRoute) {
-        navigating = true
-        voice.start(route: route)
-        centerOnUser()
+struct SharePayload: Identifiable {
+    var id = UUID()
+    var text: String
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    var text: String
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [text], applicationActivities: nil)
     }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
