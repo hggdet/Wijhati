@@ -17,11 +17,31 @@ enum MapStyleKind: String, CaseIterable {
         case .standard: return URL(string: "https://tiles.versatiles.org/styles/colorful/style.json")
         case .bright: return URL(string: "https://tiles.versatiles.org/styles/graybeard/style.json")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
-        case .cartoon: return Bundle.main.url(forResource: "cartoon-style", withExtension: "json")
-        case .satellite: return Bundle.main.url(forResource: "satellite-style", withExtension: "json")
+        case .cartoon: return Self.localStyle(name: "cartoon-v2", json: Self.cartoonJSON)
+        case .satellite: return Self.localStyle(name: "satellite-v2", json: Self.satelliteJSON)
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
+
+    // Raster styles are embedded in code and written to the caches
+    // folder at runtime: no dependence on bundle resources, which
+    // silently broke the cartoon style before.
+    private static func localStyle(name: String, json: String) -> URL? {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let file = dir.appendingPathComponent("wijhati-\(name)-style.json")
+        if !FileManager.default.fileExists(atPath: file.path) {
+            try? json.write(to: file, atomically: true, encoding: .utf8)
+        }
+        return file
+    }
+
+    private static let cartoonJSON = """
+    {"version":8,"name":"Wijhati Cartoon","sources":{"cyclosm":{"type":"raster","tileSize":256,"maxzoom":19,"attribution":"© OpenStreetMap contributors, CyclOSM","tiles":["https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png","https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png","https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"]}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#eaf2e2"}},{"id":"cyclosm","type":"raster","source":"cyclosm"}]}
+    """
+
+    private static let satelliteJSON = """
+    {"version":8,"name":"Wijhati Satellite","sources":{"esri":{"type":"raster","tileSize":256,"maxzoom":19,"attribution":"Esri World Imagery","tiles":["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#0b1020"}},{"id":"esri","type":"raster","source":"esri"}]}
+    """
 }
 
 struct CenterRequest: Equatable {
