@@ -3,9 +3,20 @@ import SwiftUI
 /// Liquid Glass surface with a graceful fallback for older systems.
 struct GlassModifier: ViewModifier {
     var cornerRadius: CGFloat = 24
+    @AppStorage("wijhati.glassMode") private var glassMode = "glass"
+    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if glassMode == "solid" {
+            content
+                .background(scheme == .dark ? Color(red: 0.11, green: 0.11, blue: 0.12) : Color.white,
+                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.black.opacity(0.07), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+        } else if #available(iOS 26.0, *) {
             content
                 .glassEffect(.regular.tint(.white.opacity(0.55)).interactive(),
                              in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
