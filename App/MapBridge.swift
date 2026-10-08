@@ -427,13 +427,18 @@ struct MapBridge: UIViewRepresentable {
                     layer.fillExtrusionHeight = NSExpression(forKeyPath: isShortbread ? "height" : "render_height")
                     layer.fillExtrusionBase = NSExpression(forKeyPath: isShortbread ? "min_height" : "render_min_height")
                     layer.fillExtrusionColor = NSExpression(forConstantValue: UIColor(red: 0.62, green: 0.68, blue: 0.78, alpha: 1))
-                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.85)
-                    layer.minimumZoomLevel = 15
-                    style.addLayer(layer)
+                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.8)
+                    layer.minimumZoomLevel = 16
+                    // Insert BELOW the label layers so buildings never cover text.
+                    if let firstSymbol = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
+                        style.insertLayer(layer, below: firstSymbol)
+                    } else {
+                        style.addLayer(layer)
+                    }
                 }
                 if let map {
-                    if map.zoomLevel < 15.5 { map.setCenter(map.centerCoordinate, zoomLevel: 15.5, animated: true) }
-                    if map.camera.pitch < 25 { var cam = map.camera; cam.pitch = 30; map.setCamera(cam, animated: true) }
+                    if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
+                    if map.camera.pitch < 18 { var cam = map.camera; cam.pitch = 22; map.setCamera(cam, animated: true) }
                 }
             } else {
                 if let layer = style.layer(withIdentifier: layerID) { style.removeLayer(layer) }
