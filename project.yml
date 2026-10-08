@@ -21,7 +21,6 @@ targets:
       properties:
         CFBundleDisplayName: وجهتي
         CFBundleName: Wijhati
-        UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
