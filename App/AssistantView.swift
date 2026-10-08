@@ -4,11 +4,10 @@ import CoreLocation
 // MARK: - Arabic local assistant (intent chat over Wijhati's own data)
 struct AssistantView: View {
     var userLocation: CLLocationCoordinate2D?
-    var reports: [RoadReport]
     var onSelectPlace: (Place) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var messages: [AMsg] = [
-        AMsg(text: "هلا بيك 👋 آني مساعد وجهتي المحلي. اسألني عن أقرب مكان، الطقس، البلاغات القريبة، أو اكتب اسم أي مكان تريده.", user: false, places: nil)
+        AMsg(text: "هلا بيك 👋 آني مساعد وجهتي المحلي. اسألني عن أقرب مكان، الطقس، أو اكتب اسم أي مكان تريده.", user: false, places: nil)
     ]
     @State private var input = ""
     @State private var busy = false
@@ -20,7 +19,7 @@ struct AssistantView: View {
         var places: [Place]?
     }
 
-    private let chips = ["أقرب صيدلية", "أقرب محطة وقود", "شنو الطقس؟", "بلاغات قريبة", "وين أني؟"]
+    private let chips = ["أقرب صيدلية", "أقرب محطة وقود", "شنو الطقس؟", "وين أني؟"]
 
     var body: some View {
         NavigationStack {
@@ -152,24 +151,7 @@ struct AssistantView: View {
             let top = Array(found.prefix(4))
             return AMsg(text: "أقرب \(cat.title) منك: \(top[0].name) — يبعد \(distText(top[0])). دوس على أي نتيجة حتى تشوفها عالخريطة.", user: false, places: top)
         }
-        // 2) Road reports near me
-        if t.contains("بلاغ") || t.contains("ازدحام") || t.contains("حادث") || t.contains("سيطرة") || t.contains("زحمة") {
-            let active = reports
-            if active.isEmpty {
-                return AMsg(text: "ماكو بلاغات نشطة حالياً — الطريق نظيف ✅", user: false, places: nil)
-            }
-            let lines = active.prefix(5).map { r -> String in
-                var s = "\(r.kindInfo.emoji) \(r.kindInfo.title) — \(r.ageText)"
-                if let userLocation {
-                    let d = CLLocation(latitude: userLocation.latitude, longitude: userLocation.longitude)
-                        .distance(from: CLLocation(latitude: r.latitude, longitude: r.longitude))
-                    s += " — يبعد \(d < 1000 ? "\(Int(d.rounded())) م" : String(format: "%.1f كم", d / 1000))"
-                }
-                return s
-            }
-            return AMsg(text: "البلاغات النشطة:\n" + lines.joined(separator: "\n"), user: false, places: active.prefix(5).map { $0.asPlace() })
-        }
-        // 3) Weather
+        // 2) Weather
         if t.contains("طقس") || t.contains("مطر") || t.contains("حار") || t.contains("جو") {
             guard let userLocation else {
                 return AMsg(text: "فعّل الموقع حتى أجيبلك الطقس.", user: false, places: nil)
@@ -179,7 +161,7 @@ struct AssistantView: View {
             }
             return AMsg(text: "ما كدرت أجيب الطقس هسه، جرّب بعد شوية.", user: false, places: nil)
         }
-        // 4) Where am I
+        // 3) Where am I
         if t.contains("وين اني") || t.contains("وين أني") || t.contains("موقعي") || t.contains("شارع") {
             guard let userLocation else {
                 return AMsg(text: "فعّل الموقع أولاً.", user: false, places: nil)
@@ -189,11 +171,11 @@ struct AssistantView: View {
             }
             return AMsg(text: "موقعك معروف عندي بس ما كدرت أحدد اسم الشارع.", user: false, places: nil)
         }
-        // 5) Greeting
+        // 4) Greeting
         if t.contains("سلام") || t.contains("هلا") || t.contains("مرحبا") {
             return AMsg(text: "هلا وعليكم السلام 🌹 اسألني: «أقرب صيدلية» أو «شنو الطقس؟» أو اكتب اسم مكان.", user: false, places: nil)
         }
-        // 6) Fallback: treat as a place search
+        // 5) Fallback: treat as a place search
         let found = await GeoService.search(t, near: userLocation, limit: 5)
         if !found.isEmpty {
             return AMsg(text: "لكيت هاي النتائج لـ«\(t)». دوس على وحدة حتى تفتحها عالخريطة.", user: false, places: found)
