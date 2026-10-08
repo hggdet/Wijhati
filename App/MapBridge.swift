@@ -41,6 +41,7 @@ struct MapBridge: UIViewRepresentable {
     var show3D: Bool
     var radarTimestamp: Int?
     var followUser: Bool
+    var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
     var northReset: Int
     var onSelectPin: (Place) -> Void
@@ -72,6 +73,10 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.styleReady = false
             map.styleURL = styleKind.url ?? MapStyleKind.standard.url
         }
+        if let ul = userLocation, !context.coordinator.didCenterOnUser {
+            context.coordinator.didCenterOnUser = true
+            map.setCenter(ul, zoomLevel: 13, animated: false)
+        }
         if followUser {
             if map.userTrackingMode != .followWithHeading { map.userTrackingMode = .followWithHeading }
         } else if map.userTrackingMode != .none {
@@ -100,6 +105,7 @@ struct MapBridge: UIViewRepresentable {
         var currentStyle: MapStyleKind
         var styleReady = false
         var lastCenterID: UUID?
+        var didCenterOnUser = false
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
 
@@ -215,6 +221,7 @@ struct MapBridge: UIViewRepresentable {
             let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.radarTimestamp ?? -1)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
             if signature == lastLayerSignature { return }
             lastLayerSignature = signature
+            updatePOILabels(style: style)
             updateLine(style: style, id: "alt-route", coords: parent.altRouteCoords,
                        color: .gray, width: 4, opacity: 0.6)
             updateLine(style: style, id: "route", coords: parent.routeCoords,
@@ -285,6 +292,25 @@ struct MapBridge: UIViewRepresentable {
             }
         }
 
+        private func updatePOILabels(style: MLNStyle) {
+            let layerID = "wijhati-poi-labels"
+            guard !currentStyle.isRaster, style.layer(withIdentifier: layerID) == nil,
+                  let vector = style.source(withIdentifier: "versatiles-shortbread") as? MLNVectorTileSource
+            else { return }
+            let layer = MLNSymbolStyleLayer(identifier: layerID, source: vector)
+            layer.sourceLayerIdentifier = "pois"
+            layer.predicate = NSPredicate(format: "name != nil")
+            layer.text = NSExpression(forKeyPath: "name")
+            layer.textFontNames = NSExpression(forConstantValue: ["noto_sans_regular"])
+            layer.textFontSize = NSExpression(forConstantValue: 12)
+            layer.textColor = NSExpression(forConstantValue: UIColor(red: 0.15, green: 0.15, blue: 0.2, alpha: 1))
+            layer.textHaloColor = NSExpression(forConstantValue: UIColor.white.withAlphaComponent(0.9))
+            layer.textHaloWidth = NSExpression(forConstantValue: 1.4)
+            layer.minimumZoomLevel = 15
+            layer.maximumZoomLevel = 18
+            style.addLayer(layer)
+        }
+
         private func updateBuildings(style: MLNStyle) {
             let layerID = "buildings-3d"
             if parent.show3D && !currentStyle.isRaster {
@@ -301,7 +327,10 @@ struct MapBridge: UIViewRepresentable {
                     layer.minimumZoomLevel = 15
                     style.addLayer(layer)
                 }
-                if let map, map.camera.pitch < 40 { var cam = map.camera; cam.pitch = 55; map.setCamera(cam, animated: true) }
+                if let map {
+                    if map.zoomLevel < 15.5 { map.setCenter(map.centerCoordinate, zoomLevel: 15.5, animated: true) }
+                    if map.camera.pitch < 25 { var cam = map.camera; cam.pitch = 30; map.setCamera(cam, animated: true) }
+                }
             } else {
                 if let layer = style.layer(withIdentifier: layerID) { style.removeLayer(layer) }
                 if parent.show3D == false, let map, map.camera.pitch > 1 { var cam = map.camera; cam.pitch = 0; map.setCamera(cam, animated: true) }
