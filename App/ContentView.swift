@@ -996,7 +996,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.24").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.25").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
