@@ -75,6 +75,11 @@ struct ContentView: View {
     @State private var suggestTask: Task<Void, Never>?
     @State private var showIntro = true
     @State private var locStage = 0
+    @State private var placeSheetFull = false
+    @State private var placeSheetDragY: CGFloat = 0
+    @State private var placeSheetVelocity: CGFloat = 0
+    @State private var dragPrevY: CGFloat = 0
+    @State private var dragLastTime: Date?
     @State private var bearingRequest: BearingRequest?
     @State private var alertCooldown: [String: Date] = [:]
 
@@ -136,6 +141,15 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
+            // Progressive blur veils over the map edges (expo-backdrop take)
+            VStack(spacing: 0) {
+                ProgressiveBlurView(edge: .top).frame(height: 110)
+                Spacer()
+                ProgressiveBlurView(edge: .bottom).frame(height: 200)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
             if searchFocused {
                 Color.black.opacity(0.16)
                     .ignoresSafeArea()
@@ -171,7 +185,7 @@ struct ContentView: View {
 
             if searchFocused { searchOverlay }
             if voice.active { pocketOverlay }
-            if showIntro { IntroView() }
+            if showIntro { MorphIntroView() }
         }
         .onAppear {
             locationService.request()
@@ -549,6 +563,11 @@ struct ContentView: View {
 
     private func placeCard(_ place: Place) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Apple Maps-style grabber: drag the card up for full details.
+            HStack { Spacer()
+                Capsule().fill(Color.secondary.opacity(0.45)).frame(width: 38, height: 5)
+                Spacer() }
+            .padding(.bottom, 1)
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(place.name).font(.headline).lineLimit(2)
@@ -615,9 +634,65 @@ struct ContentView: View {
                 }
                 .fixedSize(horizontal: true, vertical: false)
             }
+            if placeSheetFull {
+                Divider().opacity(0.4)
+                VStack(alignment: .leading, spacing: 8) {
+                    if !place.address.isEmpty {
+                        Label(place.address, systemImage: "signpost.right.and.left")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        Image(systemName: "location.viewfinder").font(.caption2).foregroundStyle(.secondary)
+                        Text(String(format: "%.5f, %.5f", place.latitude, place.longitude))
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            UIPasteboard.general.string = String(format: "%.5f, %.5f", place.latitude, place.longitude)
+                        } label: {
+                            Label("نسخ الإحداثيات", systemImage: "doc.on.doc")
+                                .font(.caption2.weight(.bold))
+                        }
+                    }
+                    Link(destination: place.mapsLink) {
+                        Label("فتح في خرائط آبل", systemImage: "map")
+                            .font(.caption.weight(.medium))
+                    }
+                }
+                .transition(.opacity)
+            }
         }
         .padding(12)
         .glass(cornerRadius: 20)
+        .offset(y: placeSheetDragY)
+        .blur(radius: min(abs(placeSheetVelocity) / 500, 5))
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: placeSheetFull)
+        .gesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { v in
+                    let now = Date()
+                    if let last = dragLastTime {
+                        let dt = max(now.timeIntervalSince(last), 0.016)
+                        placeSheetVelocity = (v.translation.height - dragPrevY) / CGFloat(dt)
+                    }
+                    dragLastTime = now
+                    dragPrevY = v.translation.height
+                    placeSheetDragY = placeSheetFull
+                        ? max(0, min(v.translation.height, 240))
+                        : min(0, max(v.translation.height, -240))
+                }
+                .onEnded { v in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        if placeSheetFull {
+                            if v.translation.height > 60 { placeSheetFull = false }
+                        } else if v.translation.height < -60 {
+                            placeSheetFull = true
+                        }
+                        placeSheetDragY = 0
+                    }
+                    placeSheetVelocity = 0
+                    dragLastTime = nil
+                }
+        )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .task(id: place.id) {
             placeWeather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
@@ -867,9 +942,10 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.17").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.18").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
+                HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
             }
             Section {
                 Text("وجهتي تطبيق خرائط عالمي بواجهة عربية زجاجية أنيقة: بحث فوري، مسارات بديلة، أنماط خرائط متعددة، أبنية ثلاثية الأبعاد، رادار مطر، وملاحة صوتية تعمل والهاتف في جيبك.")
@@ -1022,6 +1098,8 @@ struct ContentView: View {
     private func select(_ place: Place) {
         searchFocused = false
         routeNotice = nil
+        placeSheetFull = false
+        placeSheetDragY = 0
         selected = place
         suggestions = []
         if !pins.contains(place) { pins = [place] }
@@ -1121,27 +1199,16 @@ struct ShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-// MARK: - Animated launch intro
-
-private struct TriangleShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        p.closeSubpath()
-        return p
-    }
-}
-
-private struct IntroView: View {
-    @State private var dropped = false
-    @State private var pulse = false
+// MARK: - Morph-symbol launch intro (native take on expo-ios-morph-symbol)
+private struct MorphIntroView: View {
+    @State private var index = 0
+    @State private var morphBlur: CGFloat = 0
     @State private var showTitle = false
-    @State private var showTagline = false
-    @State private var routeProgress: CGFloat = 0
-    @State private var loadProgress: CGFloat = 0
     @State private var drift = false
+
+    private let symbols = ["location.fill", "mappin.and.ellipse",
+                           "point.topleft.down.to.point.bottomright.curvepath",
+                           "mappin.circle.fill"]
 
     var body: some View {
         ZStack {
@@ -1150,113 +1217,58 @@ private struct IntroView: View {
                                     Color(red: 0.22, green: 0.56, blue: 0.97)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
                 .ignoresSafeArea()
-
-            // drifting aurora light blobs
-            Circle().fill(Color(red: 1.0, green: 0.62, blue: 0.85).opacity(0.55))
+            Circle().fill(Color(red: 1.0, green: 0.62, blue: 0.85).opacity(0.5))
                 .frame(width: 300, height: 300).blur(radius: 70)
                 .offset(x: drift ? -110 : -60, y: drift ? -330 : -280)
-            Circle().fill(Color(red: 0.35, green: 0.75, blue: 1.0).opacity(0.5))
+            Circle().fill(Color(red: 0.35, green: 0.75, blue: 1.0).opacity(0.45))
                 .frame(width: 320, height: 320).blur(radius: 80)
                 .offset(x: drift ? 120 : 70, y: drift ? 300 : 250)
 
-            // route line drawing itself across the lower screen
-            RouteLineShape()
-                .trim(from: 0, to: routeProgress)
-                .stroke(Color.white.opacity(0.4), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [2, 9]))
-                .ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                Spacer()
+            VStack(spacing: 22) {
                 ZStack {
-                    // sonar pulse rings
-                    ForEach(0..<2, id: \.self) { i in
-                        Circle()
-                            .stroke(Color.white.opacity(pulse ? 0 : 0.45), lineWidth: 2)
-                            .frame(width: 120, height: 120)
-                            .scaleEffect(pulse ? 2.1 : 0.9)
-                            .animation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(Double(i) * 1.0), value: pulse)
+                    ForEach(symbols.indices, id: \.self) { i in
+                        Image(systemName: symbols[i])
+                            .font(.system(size: 96, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.18), radius: 12, y: 6)
+                            .opacity(i == index ? 1 : 0)
+                            .scaleEffect(i == index ? 1 : 0.75)
+                            .blur(radius: i == index ? morphBlur : 16)
                     }
-                    // ground shadow
-                    Ellipse().fill(Color.black.opacity(0.20))
-                        .frame(width: 64, height: 13).blur(radius: 5)
-                        .offset(y: 66)
-                        .scaleEffect(dropped ? 1 : 0.5)
-                    // the pin: white teardrop with the teal W
-                    VStack(spacing: -13) {
-                        ZStack {
-                            Circle()
-                                .fill(LinearGradient(colors: [.white, Color(red: 0.92, green: 0.94, blue: 1.0)],
-                                                     startPoint: .top, endPoint: .bottom))
-                                .frame(width: 74, height: 74)
-                                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
-                            Text("W")
-                                .font(.system(size: 37, weight: .black))
-                                .foregroundStyle(Color(red: 0.05, green: 0.72, blue: 0.58))
-                        }
-                        TriangleShape()
-                            .fill(LinearGradient(colors: [Color(red: 0.92, green: 0.94, blue: 1.0), .white],
-                                                 startPoint: .bottom, endPoint: .top))
-                            .frame(width: 42, height: 36)
-                    }
-                    .offset(y: dropped ? 0 : -190)
-                    .opacity(dropped ? 1 : 0)
                 }
-                .frame(height: 170)
-
-                Text("وجهتي")
-                    .font(.system(size: 44, weight: .black))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-                    .opacity(showTitle ? 1 : 0)
-                    .offset(y: showTitle ? 0 : 26)
-                    .padding(.top, 10)
-
-                Text("خرائط وملاحة عربية أنيقة")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .opacity(showTagline ? 1 : 0)
-                    .offset(y: showTagline ? 0 : 14)
-                    .padding(.top, 7)
-
-                // loading route bar
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.28)).frame(width: 132, height: 5)
-                    Capsule().fill(Color.white).frame(width: 132 * loadProgress, height: 5)
+                .frame(height: 125)
+                VStack(spacing: 6) {
+                    Text("وجهتي")
+                        .font(.system(size: 42, weight: .black)).foregroundStyle(.white)
+                    Text("خرائط وملاحة عربية أنيقة")
+                        .font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.85))
                 }
-                .padding(.top, 30)
-                .opacity(showTagline ? 1 : 0)
-
+                .opacity(showTitle ? 1 : 0)
+                .offset(y: showTitle ? 0 : 12)
+            }
+            VStack {
                 Spacer()
                 Text("من تطوير عبدالباسط خضير")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .opacity(showTagline ? 1 : 0)
-                    .padding(.bottom, 30)
+                    .font(.caption2).foregroundStyle(.white.opacity(0.75))
+                    .padding(.bottom, 26)
             }
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) { drift = true }
-            withAnimation(.spring(response: 0.75, dampingFraction: 0.58).delay(0.15)) { dropped = true }
-            pulse = true
-            withAnimation(.easeOut(duration: 0.55).delay(0.55)) { showTitle = true }
-            withAnimation(.easeOut(duration: 0.55).delay(0.8)) { showTagline = true }
-            withAnimation(.easeInOut(duration: 1.7).delay(0.3)) { routeProgress = 1 }
-            withAnimation(.easeInOut(duration: 1.9).delay(0.35)) { loadProgress = 1 }
+        .task { await runSequence() }
+    }
+
+    private func runSequence() async {
+        withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) { drift = true }
+        for i in 1..<symbols.count {
+            try? await Task.sleep(nanoseconds: 520_000_000)
+            withAnimation(.easeIn(duration: 0.16)) { morphBlur = 16 }
+            try? await Task.sleep(nanoseconds: 170_000_000)
+            index = i
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.62)) { morphBlur = 0 }
         }
+        try? await Task.sleep(nanoseconds: 220_000_000)
+        withAnimation(.easeOut(duration: 0.4)) { showTitle = true }
     }
 }
-
-private struct RouteLineShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX - 20, y: rect.maxY * 0.78))
-        p.addCurve(to: CGPoint(x: rect.maxX + 20, y: rect.maxY * 0.60),
-                   control1: CGPoint(x: rect.maxX * 0.35, y: rect.maxY * 0.66),
-                   control2: CGPoint(x: rect.maxX * 0.62, y: rect.maxY * 0.86))
-        return p
-    }
-}
-
 
 // MARK: - Quick places (home / work) + local search matches
 extension ContentView {
