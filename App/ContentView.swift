@@ -221,7 +221,7 @@ struct ContentView: View {
                         centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
                     }
                 }
-                GlassCircleButton(icon: "square.3.layers.3d") { showLayers = true }
+                GlassCircleButton(icon: "gearshape.fill") { showLayers = true }
                 GlassCircleButton(icon: locationService.recording ? "stop.circle.fill" : "record.circle") {
                     toggleRecording()
                 }
@@ -511,7 +511,6 @@ struct ContentView: View {
                             Text(kind.label).tag(kind)
                         }
                     }
-                    .pickerStyle(.segmented)
                 }
                 Section("طبقات") {
                     Toggle("أبنية ثلاثية الأبعاد", isOn: $show3D)
@@ -532,8 +531,27 @@ struct ContentView: View {
                         Task { await updateIsochrone(minutes: minutes) }
                     }
                 }
+                Section("حول التطبيق") {
+                    HStack {
+                        Text("التطبيق")
+                        Spacer()
+                        Text("وجهتي — Wijhati").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("الإصدار")
+                        Spacer()
+                        Text("1.1").foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("المطوّر")
+                        Spacer()
+                        Text("عبدالباسط خضير").foregroundStyle(.secondary)
+                    }
+                    Text("تطبيق خرائط عالمي ببيانات OpenStreetMap ومحرك MapLibre، صُمم وبُني بحب للملاحة العربية.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
-            .navigationTitle("الطبقات والمميزات")
+            .navigationTitle("الإعدادات")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showLayers = false } } }
         }
