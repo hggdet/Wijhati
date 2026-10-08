@@ -16,14 +16,6 @@ targets:
       - App
     dependencies:
       - package: MapLibre
-    preBuildScripts:
-      - name: Decode App Icon
-        script: |
-          B64="$SRCROOT/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png.b64"
-          PNG="$SRCROOT/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
-          if [ -f "$B64" ]; then
-            (base64 -D -i "$B64" -o "$PNG") || (openssl base64 -d -in "$B64" -out "$PNG") || true
-          fi
     info:
       path: App/Info.plist
       properties:
@@ -39,7 +31,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hggdet.wijhati
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_NAME: Wijhati
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
