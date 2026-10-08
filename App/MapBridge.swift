@@ -76,25 +76,6 @@ enum MapStyleKind: String, CaseIterable {
         }
     }
 
-    // Raster styles are embedded in code and written to the caches
-    // folder at runtime: no dependence on bundle resources, which
-    // silently broke the cartoon style before.
-    private static func localStyle(name: String, json: String) -> URL? {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let file = dir.appendingPathComponent("wijhati-\(name)-style.json")
-        if !FileManager.default.fileExists(atPath: file.path) {
-            try? json.write(to: file, atomically: true, encoding: .utf8)
-        }
-        return file
-    }
-
-    private static let cartoonJSON = """
-    {"version":8,"name":"Wijhati Cartoon","sources":{"cyclosm":{"type":"raster","tileSize":256,"maxzoom":19,"attribution":"© OpenStreetMap contributors, CyclOSM","tiles":["https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png","https://b.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png","https://c.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"]}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#eaf2e2"}},{"id":"cyclosm","type":"raster","source":"cyclosm"}]}
-    """
-
-    private static let satelliteJSON = """
-    {"version":8,"name":"Wijhati Satellite","sources":{"esri":{"type":"raster","tileSize":256,"maxzoom":19,"attribution":"Esri World Imagery","tiles":["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#0b1020"}},{"id":"esri","type":"raster","source":"esri"}]}
-    """
 }
 
 struct BearingRequest: Equatable {
@@ -153,7 +134,8 @@ struct MapBridge: UIViewRepresentable {
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
-        if context.coordinator.currentStyle != styleKind {
+        if context.coordinator.currentStyle != styleKind,
+           context.coordinator.failedStyle != styleKind {
             context.coordinator.currentStyle = styleKind
             context.coordinator.styleReady = false
             map.styleURL = styleKind.url ?? MapStyleKind.standard.url
@@ -200,6 +182,7 @@ struct MapBridge: UIViewRepresentable {
         var didCenterOnUser = false
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
+        var failedStyle: MapStyleKind?
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             parent.onMapTap()
@@ -213,6 +196,10 @@ struct MapBridge: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, didFailLoading style: MLNStyle, withError error: Error) {
+            // Remember the failure: without this, updateUIView keeps
+            // re-applying the broken style on every location update and
+            // the map reloads forever.
+            failedStyle = currentStyle
             if currentStyle != .standard {
                 currentStyle = .standard
                 styleReady = false
@@ -229,6 +216,7 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Delegate
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            failedStyle = nil
             styleReady = true
             lastLayerSignature = ""
             refreshLayers(style: style)
@@ -315,7 +303,7 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Layers
         func refreshLayers(style: MLNStyle) {
-            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.radarTimestamp ?? -1)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
+            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.radarTimestamp ?? -1)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
             if signature == lastLayerSignature { return }
             lastLayerSignature = signature
             updatePOILabels(style: style)
@@ -421,9 +409,10 @@ struct MapBridge: UIViewRepresentable {
                         layer.fillExtrusionHeight = NSExpression(forKeyPath: "height")
                         layer.fillExtrusionBase = NSExpression(forKeyPath: "min_height")
                     } else {
-                        // OpenFreeMap's 3D recipe: only truly extrudable
-                        // buildings, heights growing in smoothly from z15.
-                        layer.predicate = NSPredicate(format: "%K == %@", "extrude", "true")
+                        // Heights grow in smoothly from z15 (OpenFreeMap
+                        // recipe). NOTE: no 'extrude' filter — OFM tiles do
+                        // not carry that field at all (checked in their
+                        // TileJSON), filtering on it hides every building.
                         layer.fillExtrusionHeight = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_height"]] as [Any])
                         layer.fillExtrusionBase = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_min_height"]] as [Any])
                     }
