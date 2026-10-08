@@ -72,6 +72,8 @@ struct ContentView: View {
     @State private var elevations: [Double] = []
     @State private var shareItem: SharePayload?
     @FocusState private var searchFocused: Bool
+    @FocusState private var overlayFocused: Bool
+    @State private var routeNotice: String?
     @State private var suggestTask: Task<Void, Never>?
     @State private var showIntro = true
     @State private var locStage = 0
@@ -195,6 +197,7 @@ struct ContentView: View {
             .padding(.top, 6)
             .padding(.bottom, 8)
 
+            if searchFocused { searchOverlay }
             if voice.active { pocketOverlay }
             if showIntro { IntroView() }
         }
@@ -331,6 +334,44 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Raised search overlay (bar at top, suggestions under it)
+    private var searchOverlay: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.28).ignoresSafeArea()
+                .onTapGesture { searchFocused = false }
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("ابحث عن مكان أو عنوان", text: $query)
+                        .font(.subheadline)
+                        .focused($overlayFocused)
+                        .onSubmit { searchFocused = false; Task { await runSearch() } }
+                    if searching { ProgressView() }
+                    if !query.isEmpty {
+                        Button { query = ""; suggestions = [] } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("تم") { searchFocused = false }
+                        .font(.subheadline.weight(.bold))
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 46)
+                .glass(cornerRadius: 23)
+                if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    if !store.places.isEmpty { savedQuickList }
+                } else if !suggestions.isEmpty {
+                    suggestionsList
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 54)
+        }
+        .zIndex(6)
+        .onAppear { overlayFocused = true }
+        .transition(.opacity)
+    }
+
     // MARK: - Bottom stack
 
     private var bottomStack: some View {
@@ -340,10 +381,16 @@ struct ContentView: View {
             } else if let place = selected, selectedRoute == nil { placeCard(place) }
             if let route = selectedRoute { routeBar(route) }
             if !stops.isEmpty { stopsBar }
-            if searchFocused, query.isEmpty, !store.places.isEmpty { savedQuickList }
-            if !suggestions.isEmpty { suggestionsList }
+            if let routeNotice, selectedRoute == nil {
+                Text(routeNotice)
+                    .font(.caption.weight(.medium)).foregroundStyle(.orange)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .glass(cornerRadius: 14)
+            }
             searchBar
         }
+        .opacity(searchFocused ? 0 : 1)
+        .allowsHitTesting(!searchFocused)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: suggestions.isEmpty)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: searchFocused)
     }
@@ -400,6 +447,10 @@ struct ContentView: View {
                             .foregroundStyle(saved.isFavorite ? .yellow : .blue).font(.system(size: 17))
                         Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                         Spacer()
+                        if let loc = locationService.location {
+                            Text(fmtDist(loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))))
+                                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .contentShape(Rectangle())
@@ -437,7 +488,7 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(maxHeight: 250)
+        .frame(maxHeight: 340)
         .glass(cornerRadius: 22)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -481,6 +532,7 @@ struct ContentView: View {
                             .foregroundStyle(transport == choice ? .white : .primary)
                     }
                 }
+                if loadingRoute { ProgressView().controlSize(.small) }
                 Spacer()
                 Button { clearRoute() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -500,7 +552,7 @@ struct ContentView: View {
                 }
             }
             HStack(spacing: 12) {
-                Label(formatDuration(route.duration), systemImage: "clock")
+                Label("\(transport.label): \(formatDuration(route.duration))", systemImage: "clock")
                 Label(fmtDist(route.distance), systemImage: "arrow.triangle.swap")
                 if !elevations.isEmpty {
                     Label("▲ \(Int(elevations.max() ?? 0)) م", systemImage: "mountain.2")
@@ -549,7 +601,8 @@ struct ContentView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }
-            HStack(spacing: 7) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
                 Button { Task { await computeRoute() } } label: {
                     Label(loadingRoute ? "…" : "الاتجاهات", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         .font(.caption.weight(.bold))
@@ -591,6 +644,8 @@ struct ContentView: View {
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
                 }
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(12)
@@ -844,7 +899,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.15").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.16").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -1086,6 +1141,7 @@ struct ContentView: View {
 
     private func select(_ place: Place) {
         searchFocused = false
+        routeNotice = nil
         if place.id.hasPrefix("report-") {
             reportSelectedID = String(place.id.dropFirst("report-".count))
             selected = nil
@@ -1127,10 +1183,14 @@ struct ContentView: View {
 
     private func computeRoute() async {
         guard let origin = locationService.location?.coordinate, let dest = selected else { return }
+        routeNotice = nil
         loadingRoute = true
         let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
                                             to: dest.coordinate, profile: transport.osrmProfile)
         loadingRoute = false
+        if result.isEmpty {
+            routeNotice = "تعذّر حساب مسار \(transport.label) لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب"
+        }
         routes = await GeoService.enrichRoutes(result)
         selectedRouteIndex = 0
         elevations = []
