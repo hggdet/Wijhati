@@ -5,6 +5,38 @@ enum GeoService {
 
     // MARK: - Photon search (OpenStreetMap)
     static func search(_ query: String, near: CLLocationCoordinate2D?, limit: Int = 8) async -> [Place] {
+        // Colloquial-friendly: try the raw query, then normalized/dialect variants.
+        for variant in searchVariants(query) {
+            let found = await photonSearch(variant, near: near, limit: limit)
+            if !found.isEmpty { return found }
+        }
+        return []
+    }
+
+    static func normalizeArabic(_ text: String) -> String {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for (a, b) in [("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ة", "ه"), ("ى", "ي"), ("ؤ", "و"), ("ئ", "ي")] {
+            t = t.replacingOccurrences(of: a, with: b)
+        }
+        return t
+    }
+
+    static func searchVariants(_ query: String) -> [String] {
+        var out: [String] = [query]
+        let n = normalizeArabic(query)
+        if n != query { out.append(n) }
+        // dialect place words people actually say
+        let swaps: [(String, String)] = [("جامع", "مسجد"), ("مسجد", "جامع"),
+                                         ("بانزينخانه", "محطة وقود"), ("بنزينخانه", "محطة وقود"),
+                                         ("بانزينخانة", "محطة وقود"), ("بنزينخانة", "محطة وقود"),
+                                         ("كوفي", "مقهى"), ("فرن", "مخبز"), ("صيدليه", "صيدلية")]
+        for (a, b) in swaps where n.contains(a) {
+            out.append(n.replacingOccurrences(of: a, with: b))
+        }
+        return Array(NSOrderedSet(array: out)) as? [String] ?? out
+    }
+
+    private static func photonSearch(_ query: String, near: CLLocationCoordinate2D?, limit: Int) async -> [Place] {
         var comps = URLComponents(string: "https://photon.komoot.io/api/")!
         var items = [URLQueryItem(name: "q", value: query),
                      URLQueryItem(name: "limit", value: "\(limit)"),
@@ -171,6 +203,73 @@ enum GeoService {
                                  coordinates: coordinates, steps: steps))
         }
         return out.sorted { $0.duration < $1.duration }
+    }
+
+    // MARK: - Landmark-based navigation
+    /// Rewrites turn instructions to mention a well-known place right at the
+    /// turn ("انعطف يميناً، بجانب جامع النور") using one batched Overpass query.
+    static func enrichRoutes(_ routes: [RouteData]) async -> [RouteData] {
+        func isTurn(_ step: StepData) -> Bool {
+            step.instruction.contains("يميناً") || step.instruction.contains("يساراً") ||
+            step.instruction.contains("استدارة") || step.instruction.contains("الدوّار")
+        }
+        var points: [CLLocationCoordinate2D] = []
+        for route in routes {
+            for (idx, step) in route.steps.enumerated() where idx > 0 && idx < route.steps.count - 1 && isTurn(step) {
+                points.append(step.coordinate)
+            }
+        }
+        guard !points.isEmpty else { return routes }
+        let clauses = points.map { p in
+            "nwr[\"name\"][\"amenity\"~\"place_of_worship|pharmacy|hospital|school|fuel|marketplace|cafe|restaurant\"](around:80,\(p.latitude),\(p.longitude));"
+        }.joined(separator: "\n")
+        let query = "[out:json][timeout:20];(\n\(clauses)\n);out center 120;"
+        var found: [(name: String, kind: String, coord: CLLocationCoordinate2D)] = []
+        var lmRequest = URLRequest(url: URL(string: "https://overpass-api.de/api/interpreter")!)
+        lmRequest.httpMethod = "POST"
+        lmRequest.timeoutInterval = 25
+        lmRequest.setValue("Wijhati/1.14 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
+        lmRequest.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        lmRequest.httpBody = ("data=" + (query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")).data(using: .utf8)
+        if let root = await sendJSON(lmRequest) as? [String: Any],
+           let elements = root["elements"] as? [[String: Any]] {
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let name = tags["name"] as? String, !name.isEmpty else { continue }
+                let lat = (el["lat"] as? Double) ?? ((el["center"] as? [String: Any])?["lat"] as? Double)
+                let lon = (el["lon"] as? Double) ?? ((el["center"] as? [String: Any])?["lon"] as? Double)
+                guard let lat, let lon else { continue }
+                found.append((name, (tags["amenity"] as? String) ?? "", CLLocationCoordinate2D(latitude: lat, longitude: lon)))
+            }
+        }
+        guard !found.isEmpty else { return routes }
+        let kindWord: [String: String] = ["place_of_worship": "جامع", "pharmacy": "صيدلية",
+                                          "hospital": "مستشفى", "school": "مدرسة",
+                                          "fuel": "محطة وقود", "marketplace": "سوق"]
+        var used = Set<String>()
+        return routes.map { route in
+            var copy = route
+            copy.steps = route.steps.enumerated().map { idx, step in
+                guard idx > 0, idx < route.steps.count - 1, isTurn(step) else { return step }
+                let origin = CLLocation(latitude: step.coordinate.latitude, longitude: step.coordinate.longitude)
+                let nearest = found
+                    .filter { !used.contains($0.name) }
+                    .map { (lm: $0, d: origin.distance(from: CLLocation(latitude: $0.coord.latitude, longitude: $0.coord.longitude))) }
+                    .filter { $0.d <= 80 }
+                    .sorted { $0.d < $1.d }
+                    .first
+                guard let hit = nearest else { return step }
+                used.insert(hit.lm.name)
+                var display = hit.lm.name
+                if let word = kindWord[hit.lm.kind], !hit.lm.name.contains(word) {
+                    display = "\(word) \(hit.lm.name)"
+                }
+                var stepCopy = step
+                stepCopy.instruction = step.instruction + "، بجانب \(display)"
+                return stepCopy
+            }
+            return copy
+        }
     }
 
     static func arabicInstruction(maneuver: [String: Any], name: String) -> String {
