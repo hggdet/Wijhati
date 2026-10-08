@@ -230,40 +230,15 @@ struct MapBridge: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, imageFor annotation: MLNAnnotation) -> MLNAnnotationImage? {
-            let isReport = parent.pins.contains {
-                $0.id.hasPrefix("report-") &&
-                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
-                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
-            }
             let isCommunity = parent.pins.contains {
                 $0.id.hasPrefix("community-") &&
                 abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
                 abs($0.longitude - annotation.coordinate.longitude) < 0.00005
             }
-            let id = isReport ? "wijhati-report-pin" : (isCommunity ? "wijhati-community-pin" : "wijhati-pin")
+            let id = isCommunity ? "wijhati-community-pin" : "wijhati-pin"
             if let existing = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return existing }
-            let img = isReport ? Self.reportPinImage() : (isCommunity ? Self.communityPinImage() : Self.pinImage())
+            let img = isCommunity ? Self.communityPinImage() : Self.pinImage()
             return MLNAnnotationImage(image: img, reuseIdentifier: id)
-        }
-
-        static func reportPinImage() -> UIImage {
-            let size = CGSize(width: 36, height: 36)
-            let renderer = UIGraphicsImageRenderer(size: size)
-            return renderer.image { _ in
-                let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 32, height: 32))
-                UIColor.systemOrange.setFill()
-                circle.fill()
-                UIColor.white.setStroke()
-                circle.lineWidth = 2.5
-                circle.stroke()
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 20, weight: .black),
-                    .foregroundColor: UIColor.white
-                ]
-                let text = "!" as NSString
-                let ts = text.size(withAttributes: attrs)
-                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
-            }
         }
 
         static func communityPinImage() -> UIImage {
