@@ -169,7 +169,8 @@ struct ContentView: View {
                     Button { advanceLocationStage() } label: {
                         Image(systemName: locStageIcon)
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.blue)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(locStageColors.0, locStageColors.1)
                             .frame(width: 52, height: 52)
                             .contentTransition(.symbolEffect(.replace))
                     }
@@ -262,9 +263,9 @@ struct ContentView: View {
         HStack(alignment: .top) {
             Button { showWeatherDetail.toggle(); refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true) } label: {
                 VStack(spacing: 1) {
-                    Image(systemName: "cloud.sun.fill").font(.system(size: 15))
-                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
-                        .font(.system(size: 11, weight: .bold))
+                    Image(systemName: "sun.max.fill").font(.system(size: 16)).foregroundStyle(.yellow)
+                    Text(localWeather.map { tempUnit == "f" ? "\(Int(($0.temperature * 9 / 5 + 32).rounded()))" : "\(Int($0.temperature.rounded()))" } ?? "—")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
                 }
                 .frame(width: 46, height: 46)
             }
@@ -275,12 +276,14 @@ struct ContentView: View {
             Button { showAssistant = true } label: {
                 Image(systemName: "sparkles")
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(LinearGradient(colors: [.red, .blue, .green], startPoint: .leading, endPoint: .trailing))
                     .frame(width: 46, height: 46)
             }
             .glass(cornerRadius: 23)
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.black)
                     .frame(width: 46, height: 46)
             }
             .glass(cornerRadius: 23)
@@ -426,7 +429,7 @@ struct ContentView: View {
                 Button { select(saved.place) } label: {
                     HStack(spacing: 9) {
                         Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
-                            .foregroundStyle(saved.isFavorite ? .yellow : .blue).font(.system(size: 17))
+                            .foregroundStyle(saved.isFavorite ? .yellow : Color(white: 0.05)).font(.system(size: 17))
                         Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                         Spacer()
                         if let loc = locationService.location {
@@ -450,7 +453,7 @@ struct ContentView: View {
                 ForEach(suggestions) { place in
                     Button { select(place) } label: {
                         HStack(spacing: 9) {
-                            Image(systemName: "mappin.circle.fill").foregroundStyle(.blue).font(.system(size: 19))
+                            Image(systemName: "mappin.circle.fill").foregroundStyle(Color(white: 0.05)).font(.system(size: 19))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                                 if !place.address.isEmpty {
@@ -751,7 +754,7 @@ struct ContentView: View {
                     } label: {
                         HStack {
                             Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
-                                .foregroundStyle(saved.isFavorite ? .yellow : .blue)
+                                .foregroundStyle(saved.isFavorite ? .yellow : Color(white: 0.05))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                                 if !saved.place.address.isEmpty {
@@ -942,7 +945,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.18").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.19").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1049,6 +1052,14 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
+
+    private var locStageColors: (Color, Color) {
+        switch locStage {
+        case 2: return (.red, .blue)       // compass stage
+        case 3: return (.green, .green)  // 3D stage
+        default: return (Color(white: 0.05), Color(white: 0.05))
+        }
+    }
 
     private var locStageIcon: String {
         switch locStage {
@@ -1305,7 +1316,7 @@ extension ContentView {
     func quickPlaceRow(title: String, icon: String, place: Place?, key: String, isHome: Bool) -> some View {
         if let place {
             HStack {
-                Image(systemName: icon).foregroundStyle(.blue)
+                Image(systemName: icon).foregroundStyle(Color(white: 0.05))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.caption).foregroundStyle(.secondary)
                     Text(place.name).font(.subheadline.weight(.medium)).lineLimit(1)
