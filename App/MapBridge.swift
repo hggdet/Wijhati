@@ -79,6 +79,12 @@ enum MapStyleKind: String, CaseIterable {
     """
 }
 
+struct BearingRequest: Equatable {
+    var degrees: Double
+    var id: UUID = UUID()
+    static func == (lhs: BearingRequest, rhs: BearingRequest) -> Bool { lhs.id == rhs.id }
+}
+
 struct CenterRequest: Equatable {
     var coordinate: CLLocationCoordinate2D
     var zoom: Double
@@ -98,6 +104,7 @@ struct MapBridge: UIViewRepresentable {
     var followUser: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
+    var bearingRequest: BearingRequest?
     var northReset: Int
     var onSelectPin: (Place) -> Void
     var onLongPress: (CLLocationCoordinate2D) -> Void
@@ -142,6 +149,12 @@ struct MapBridge: UIViewRepresentable {
         } else if map.userTrackingMode != .none {
             map.userTrackingMode = .none
         }
+        if let req = bearingRequest, context.coordinator.lastBearingID != req.id {
+            context.coordinator.lastBearingID = req.id
+            var cam = map.camera
+            cam.heading = req.degrees
+            map.setCamera(cam, animated: true)
+        }
         if let req = centerRequest, context.coordinator.lastCenterID != req.id {
             context.coordinator.lastCenterID = req.id
             map.setCenter(req.coordinate, zoomLevel: req.zoom, animated: true)
@@ -165,6 +178,7 @@ struct MapBridge: UIViewRepresentable {
         var currentStyle: MapStyleKind
         var styleReady = false
         var lastCenterID: UUID?
+        var lastBearingID: UUID?
         var didCenterOnUser = false
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
