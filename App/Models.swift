@@ -149,9 +149,9 @@ enum TransportChoice: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .driving: return "قيادة"
-        case .walking: return "مشي"
-        case .cycling: return "دراجة"
+        case .driving: return "قيادة".loc
+        case .walking: return "مشي".loc
+        case .cycling: return "دراجة".loc
         }
     }
     var icon: String {
@@ -171,8 +171,8 @@ enum TransportChoice: String, CaseIterable, Identifiable {
 }
 
 func formatDistance(_ meters: Double) -> String {
-    if meters < 1000 { return "\(Int(meters.rounded())) م" }
-    return String(format: "%.1f كم", meters / 1000)
+    if meters < 1000 { return "\(Int(meters.rounded())) \("م".loc)" }
+    return String(format: "%.1f %@", meters / 1000, "كم".loc)
 }
 
 func formatDuration(_ seconds: Double) -> String {
