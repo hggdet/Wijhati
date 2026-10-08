@@ -72,7 +72,7 @@ struct ContentView: View {
     @State private var showWeatherDetail = false
     @State private var elevations: [Double] = []
     @State private var shareItem: SharePayload?
-    @FocusState private var searchFocused: Bool
+    @State private var showSearch = false
     @FocusState private var overlayFocused: Bool
     @State private var routeNotice: String?
     @State private var suggestTask: Task<Void, Never>?
@@ -140,7 +140,7 @@ struct ContentView: View {
                 northReset: northReset,
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
-                onMapTap: { searchFocused = false }
+                onMapTap: { showSearch = false }
             )
             .ignoresSafeArea()
 
@@ -153,10 +153,10 @@ struct ContentView: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
 
-            if searchFocused {
+            if showSearch {
                 Color.black.opacity(0.16)
                     .ignoresSafeArea()
-                    .onTapGesture { searchFocused = false }
+                    .onTapGesture { showSearch = false }
                     .transition(.opacity)
             }
 
@@ -165,7 +165,7 @@ struct ContentView: View {
                 statusPills
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
-                if !searchFocused {
+                if !showSearch {
                 HStack {
                     Spacer()
 
@@ -187,7 +187,7 @@ struct ContentView: View {
             .padding(.top, 6)
             .padding(.bottom, 8)
 
-            if searchFocused { searchOverlay }
+            if showSearch { searchOverlay }
             if voice.active { pocketOverlay }
             if showIntro { MorphIntroView() }
         }
@@ -330,21 +330,35 @@ struct ContentView: View {
     private var searchOverlay: some View {
         ZStack(alignment: .top) {
             Color.black.opacity(0.28).ignoresSafeArea()
-                .onTapGesture { searchFocused = false }
+                .onTapGesture { showSearch = false; overlayFocused = false }
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("ابحث عن مكان أو عنوان", text: $query)
                         .font(.subheadline)
                         .focused($overlayFocused)
-                        .onSubmit { searchFocused = false; Task { await runSearch() } }
+                        .onSubmit { showSearch = false; overlayFocused = false; Task { await runSearch() } }
+                        .onChange(of: query) { _, newValue in
+                            suggestTask?.cancel()
+                            suggestTask = Task {
+                                try? await Task.sleep(nanoseconds: 120_000_000)
+                                guard !Task.isCancelled, query == newValue else { return }
+                                if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
+                                    let local = localMatches(for: newValue)
+                                    let remote = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
+                                    suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
+                                } else {
+                                    suggestions = []
+                                }
+                            }
+                        }
                     if searching { ProgressView() }
                     if !query.isEmpty {
                         Button { query = ""; suggestions = [] } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
                     }
-                    Button("تم") { searchFocused = false }
+                    Button("تم") { showSearch = false; overlayFocused = false }
                         .font(.subheadline.weight(.bold))
                 }
                 .padding(.horizontal, 12)
@@ -360,7 +374,7 @@ struct ContentView: View {
             .padding(.top, 54)
         }
         .zIndex(6)
-        .onAppear { overlayFocused = true }
+        .onAppear { DispatchQueue.main.async { overlayFocused = true } }
         .transition(.opacity)
     }
 
@@ -379,48 +393,38 @@ struct ContentView: View {
             }
             searchBar
         }
-        .opacity(searchFocused ? 0 : 1)
-        .allowsHitTesting(!searchFocused)
+        .opacity(showSearch ? 0 : 1)
+        .allowsHitTesting(!showSearch)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: suggestions.isEmpty)
-        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: searchFocused)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: showSearch)
     }
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("ابحث عن مكان أو عنوان", text: $query)
-                .font(.subheadline)
-                .focused($searchFocused)
-                .onSubmit { searchFocused = false; Task { await runSearch() } }
-                .onChange(of: query) { _, newValue in
-                    suggestTask?.cancel()
-                    suggestTask = Task {
-                        try? await Task.sleep(nanoseconds: 120_000_000)
-                        guard !Task.isCancelled, query == newValue else { return }
-                        if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
-                            let local = localMatches(for: newValue)
-                            let remote = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
-                            suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
-                        } else {
-                            suggestions = []
-                        }
-                    }
+            Button { showSearch = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Text(query.isEmpty ? "ابحث عن مكان أو عنوان" : query)
+                        .font(.subheadline)
+                        .foregroundStyle(query.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                        .lineLimit(1)
+                    Spacer()
                 }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             if searching { ProgressView() }
             if !query.isEmpty {
                 Button { query = ""; suggestions = [] } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
             }
-            if searchFocused {
-                Button("تم") { searchFocused = false }
-                    .font(.subheadline.weight(.bold))
-            }
         }
         .padding(.horizontal, 12)
         .frame(height: 46)
         .glass(cornerRadius: 23)
     }
+
 
     private var savedQuickList: some View {
         VStack(spacing: 0) {
@@ -996,7 +1000,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.25").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.26").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1206,7 +1210,7 @@ struct ContentView: View {
     }
 
     private func select(_ place: Place) {
-        searchFocused = false
+        showSearch = false
         routeNotice = nil
         placeSheetFull = false
         placeSheetDragY = 0
