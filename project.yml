@@ -4,31 +4,47 @@ options:
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    from: "6.0.0"
 targets:
   Wijhati:
     type: application
     platform: iOS
     sources:
       - App
+    dependencies:
+      - package: MapLibre
+    preBuildScripts:
+      - name: Decode App Icon
+        script: |
+          B64="$SRCROOT/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png.b64"
+          PNG="$SRCROOT/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+          if [ -f "$B64" ]; then
+            (base64 -D -i "$B64" -o "$PNG") || (openssl base64 -d -in "$B64" -out "$PNG") || true
+          fi
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: وجهتي
         CFBundleName: Wijhati
+        UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: يحتاج وجهتي إلى موقعك لعرضه على الخريطة وحساب المسارات إليك ومنك.
+        NSLocationWhenInUseUsageDescription: يحتاج وجهتي إلى موقعك لعرضه على الخريطة وحساب المسارات وتسجيل الرحلات.
         NSLocationAlwaysAndWhenInUseUsageDescription: يحتاج وجهتي إلى موقعك في الخلفية لتنبيهات القرب وإرشاد الملاحة.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hggdet.wijhati
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_NAME: Wijhati
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "3"
         CODE_SIGN_STYLE: Manual
 schemes:
   Wijhati:
