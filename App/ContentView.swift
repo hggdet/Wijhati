@@ -68,6 +68,7 @@ struct ContentView: View {
     @State private var showReportSheet = false
     @State private var reportSelectedID: String?
     @State private var reportThanks = false
+    @State private var categoryNotice: String?
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
@@ -118,6 +119,7 @@ struct ContentView: View {
                 show3D: show3D,
                 radarTimestamp: radarOn ? radarTS : nil,
                 followUser: followUser,
+                userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
                 northReset: northReset,
                 onSelectPin: { place in select(place) },
@@ -129,6 +131,13 @@ struct ContentView: View {
                 topBar
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
+                if let categoryNotice {
+                    Text(categoryNotice)
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .glass(cornerRadius: 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if reportThanks {
                     Text("شكراً! بلاغك انحفظ ويظهر على الخريطة 🙏")
                         .font(.caption.weight(.bold))
@@ -137,15 +146,28 @@ struct ContentView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 HStack {
-                    Spacer()
                     Button { showReportSheet = true } label: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.orange)
                             .frame(width: 52, height: 52)
-                            .background(LinearGradient(colors: [.orange, .red], startPoint: .top, endPoint: .bottom), in: Circle())
-                            .shadow(color: .orange.opacity(0.45), radius: 8, y: 3)
                     }
+                    .glass(cornerRadius: 26)
+
+                    Spacer()
+
+                    Button {
+                        followUser = false
+                        if let loc = locationService.location {
+                            centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+                        }
+                    } label: {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.blue)
+                            .frame(width: 52, height: 52)
+                    }
+                    .glass(cornerRadius: 26)
                 }
                 bottomStack
             }
@@ -194,10 +216,6 @@ struct ContentView: View {
 
             Button {
                 northReset += 1
-                followUser = false
-                if let loc = locationService.location {
-                    centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
-                }
             } label: {
                 Image(systemName: "location.north.fill")
                     .font(.system(size: 17, weight: .semibold))
@@ -707,7 +725,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.5").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.6").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -802,7 +820,7 @@ struct ContentView: View {
                             VStack(spacing: 7) {
                                 Text(kind.emoji).font(.system(size: 34))
                                     .frame(width: 64, height: 64)
-                                    .background(Color.white.opacity(0.12), in: Circle())
+                                    .glass(cornerRadius: 32)
                                 Text(kind.title).font(.caption.weight(.medium)).foregroundStyle(.primary)
                             }
                         }
@@ -951,6 +969,9 @@ struct ContentView: View {
         if !results.isEmpty {
             centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
             selected = nil
+        } else {
+            categoryNotice = "ما لقينا \(cat.title) قريبة منك حالياً"
+            Task { try? await Task.sleep(nanoseconds: 2_600_000_000); categoryNotice = nil }
         }
     }
 
