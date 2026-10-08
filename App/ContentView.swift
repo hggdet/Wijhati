@@ -28,6 +28,10 @@ struct ContentView: View {
     @StateObject private var reportsStore = ReportsStore()
     @StateObject private var community = CommunityStore()
     @State private var showAssistant = false
+    @StateObject private var liveShare = LiveShareService()
+    @State private var showAR = false
+    @State private var homePlace: Place?
+    @State private var workPlace: Place?
     @State private var publishPlace: Place?
     @StateObject private var offlineManager = OfflineManager()
 
@@ -193,10 +197,32 @@ struct ContentView: View {
             .padding(.bottom, 8)
 
             if voice.active { pocketOverlay }
+            if liveShare.active {
+                VStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.orange)
+                        Text("مشاركة حية • \(liveShare.remainingText)").font(.caption.weight(.bold))
+                        Button { shareItem = SharePayload(text: liveShare.shareText) } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        Button { liveShare.stop() } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .glass(cornerRadius: 18)
+                    .padding(.top, 60)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
             if showIntro { IntroView() }
         }
         .onAppear {
             locationService.request()
+            homePlace = Self.loadQuickPlace("wijhati.homePlace")
+            workPlace = Self.loadQuickPlace("wijhati.workPlace")
+            syncWidgetPlaces()
             Task {
                 try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
@@ -208,11 +234,23 @@ struct ContentView: View {
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
             voice.update(userLocation: loc)
+            liveShare.moved(to: loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
         }
         .preferredColorScheme(schemeOverride)
         .sheet(isPresented: $showSaved) { savedSheet }
+        .fullScreenCover(isPresented: $showAR) {
+            if let target = voice.nextTargetCoordinate ?? selected?.coordinate {
+                ARNavView(locationService: locationService, target: target,
+                          instruction: voice.currentInstruction, distance: voice.distanceToNext)
+            }
+        }
+        .onOpenURL { url in
+            guard url.scheme == "wijhati" else { return }
+            if url.host == "home", let homePlace { select(homePlace); Task { await computeRoute() } }
+            if url.host == "work", let workPlace { select(workPlace); Task { await computeRoute() } }
+        }
         .sheet(isPresented: $showAssistant) {
             AssistantView(userLocation: locationService.location?.coordinate,
                           reports: allActiveReports) { place in
@@ -344,7 +382,9 @@ struct ContentView: View {
                         try? await Task.sleep(nanoseconds: 120_000_000)
                         guard !Task.isCancelled, query == newValue else { return }
                         if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
-                            suggestions = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
+                            let local = localMatches(for: newValue)
+                            let remote = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
+                            suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
                         } else {
                             suggestions = []
                         }
@@ -596,6 +636,14 @@ struct ContentView: View {
                 if !voice.arrived {
                     Text(fmtDist(voice.distanceToNext)).font(.headline).foregroundStyle(.gray)
                 }
+                if transport == .walking && !voice.arrived {
+                    Button { showAR = true } label: {
+                        Label("ملاحة بالكاميرا", systemImage: "camera.viewfinder")
+                            .font(.headline).foregroundStyle(.white)
+                            .padding(.horizontal, 22).padding(.vertical, 12)
+                            .background(Color.blue, in: Capsule())
+                    }
+                }
                 Button { voice.stop(); followUser = false } label: {
                     Text("إيقاف الملاحة")
                         .font(.headline).foregroundStyle(.white)
@@ -612,6 +660,10 @@ struct ContentView: View {
     private var savedSheet: some View {
         NavigationStack {
             List {
+                Section("أماكن سريعة") {
+                    quickPlaceRow(title: "البيت", icon: "house.fill", place: homePlace, key: "wijhati.homePlace", isHome: true)
+                    quickPlaceRow(title: "الشغل", icon: "briefcase.fill", place: workPlace, key: "wijhati.workPlace", isHome: false)
+                }
                 if store.places.isEmpty {
                     Text("لا توجد أماكن محفوظة بعد").foregroundStyle(.secondary)
                 }
@@ -688,6 +740,31 @@ struct ContentView: View {
                     aboutPage
                 } label: {
                     Label("حول وجهتي", systemImage: "info.circle.fill")
+                }
+                Section("مشاركة موقعي الحي") {
+                    if liveShare.active {
+                        Label("المشاركة جارية • \(liveShare.remainingText)", systemImage: "dot.radiowaves.left.and.right")
+                        Button { shareItem = SharePayload(text: liveShare.shareText) } label: {
+                            Label("إرسال رابط التتبع", systemImage: "square.and.arrow.up")
+                        }
+                        Button(role: .destructive) { liveShare.stop() } label: {
+                            Label("إيقاف المشاركة", systemImage: "stop.circle")
+                        }
+                    } else {
+                        ForEach([15, 30, 60], id: \.self) { mins in
+                            Button {
+                                liveShare.start(minutes: mins)
+                                if let loc = locationService.location { liveShare.moved(to: loc) }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    shareItem = SharePayload(text: liveShare.shareText)
+                                }
+                            } label: {
+                                Label("مشاركة لمدة \(mins) دقيقة", systemImage: "location.circle")
+                            }
+                        }
+                        Text("يرسل رابطاً يفتحه أي شخص (واتساب/تيليكرام) ليتابع موقعك على خريطة حية حتى انتهاء المدة. التتبع الحي الكامل يعمل مع السيرفر المشترك.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 Section {
                     Button {
@@ -813,7 +890,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.13").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.14").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -1100,7 +1177,7 @@ struct ContentView: View {
         let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
                                             to: dest.coordinate, profile: transport.osrmProfile)
         loadingRoute = false
-        routes = result
+        routes = await GeoService.enrichRoutes(result)
         selectedRouteIndex = 0
         elevations = []
         if let first = result.first {
@@ -1293,6 +1370,75 @@ private struct RouteLineShape: Shape {
     }
 }
 
+
+// MARK: - Quick places (home / work) + local search matches
+extension ContentView {
+    static func loadQuickPlace(_ key: String) -> Place? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(Place.self, from: data)
+    }
+    func saveQuickPlace(_ place: Place?, key: String, isHome: Bool) {
+        if isHome { homePlace = place } else { workPlace = place }
+        if let place, let data = try? JSONEncoder().encode(place) {
+            UserDefaults.standard.set(data, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        syncWidgetPlaces()
+    }
+    func syncWidgetPlaces() {
+        guard let shared = UserDefaults(suiteName: "group.com.hggdet.wijhati") else { return }
+        for (place, k) in [(homePlace, "home"), (workPlace, "work")] {
+            if let place {
+                shared.set(["name": place.name, "lat": place.latitude, "lon": place.longitude], forKey: k)
+            } else {
+                shared.removeObject(forKey: k)
+            }
+        }
+    }
+    func localMatches(for query: String) -> [Place] {
+        let q = GeoService.normalizeArabic(query)
+        guard q.count >= 2 else { return [] }
+        let candidates = store.places.map { $0.place } + community.allPlaces.map { $0.asPlace() }
+        return Array(candidates.filter { GeoService.normalizeArabic($0.name).contains(q) }.prefix(3))
+    }
+    @ViewBuilder
+    func quickPlaceRow(title: String, icon: String, place: Place?, key: String, isHome: Bool) -> some View {
+        if let place {
+            HStack {
+                Image(systemName: icon).foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.caption).foregroundStyle(.secondary)
+                    Text(place.name).font(.subheadline.weight(.medium)).lineLimit(1)
+                }
+                Spacer()
+                Button("اتجاهات") {
+                    showSaved = false
+                    select(place)
+                    Task { await computeRoute() }
+                }
+                .font(.caption.weight(.bold))
+                Button(role: .destructive) { saveQuickPlace(nil, key: key, isHome: isHome) } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+            }
+        } else {
+            Button {
+                guard let loc = locationService.location else { return }
+                let p = Place.make(name: title, address: "موقعي الحالي", lat: loc.coordinate.latitude, lon: loc.coordinate.longitude)
+                saveQuickPlace(p, key: key, isHome: isHome)
+                Task {
+                    if let resolved = await GeoService.reverse(lat: p.latitude, lon: p.longitude) {
+                        saveQuickPlace(Place.make(name: title, address: resolved.address, lat: p.latitude, lon: p.longitude), key: key, isHome: isHome)
+                    }
+                }
+            } label: {
+                Label("تعيين \(title) من موقعي الحالي", systemImage: icon)
+            }
+        }
+    }
+}
 
 // MARK: - Publish a local place (Local Intelligence contribution)
 struct AddPlaceSheet: View {
