@@ -45,7 +45,7 @@ struct ContentView: View {
     @State private var searching = false
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .cartoon
+    @State private var styleKind: MapStyleKind = .standard
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var northReset = 0
@@ -68,6 +68,8 @@ struct ContentView: View {
     @FocusState private var searchFocused: Bool
     @State private var suggestTask: Task<Void, Never>?
     @State private var showIntro = true
+    @State private var locStage = 0
+    @State private var bearingRequest: BearingRequest?
     @State private var showReportSheet = false
     @State private var reportSelectedID: String?
     @State private var reportThanks = false
@@ -123,12 +125,20 @@ struct ContentView: View {
                 followUser: followUser,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
+                bearingRequest: bearingRequest,
                 northReset: northReset,
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
                 onMapTap: { searchFocused = false }
             )
             .ignoresSafeArea()
+
+            if searchFocused {
+                Color.black.opacity(0.16)
+                    .ignoresSafeArea()
+                    .onTapGesture { searchFocused = false }
+                    .transition(.opacity)
+            }
 
             VStack(spacing: 8) {
                 topBar
@@ -142,6 +152,7 @@ struct ContentView: View {
                         .glass(cornerRadius: 16)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+                if !searchFocused {
                 HStack {
                     Button { showReportSheet = true } label: {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -153,19 +164,16 @@ struct ContentView: View {
 
                     Spacer()
 
-                    Button {
-                        followUser = false
-                        northReset += 1
-                        if let loc = locationService.location {
-                            centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
-                        }
-                    } label: {
-                        Image(systemName: "location.fill")
+                    Button { advanceLocationStage() } label: {
+                        Image(systemName: locStageIcon)
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(.blue)
                             .frame(width: 52, height: 52)
+                            .contentTransition(.symbolEffect(.replace))
                     }
                     .glass(cornerRadius: 26)
+                }
+                .transition(.opacity)
                 }
                 bottomStack
             }
@@ -316,6 +324,7 @@ struct ContentView: View {
             } else if let place = selected, selectedRoute == nil { placeCard(place) }
             if let route = selectedRoute { routeBar(route) }
             if !stops.isEmpty { stopsBar }
+            if searchFocused, query.isEmpty, !store.places.isEmpty { savedQuickList }
             if !suggestions.isEmpty { suggestionsList }
             searchBar
         }
@@ -333,7 +342,7 @@ struct ContentView: View {
                 .onChange(of: query) { _, newValue in
                     suggestTask?.cancel()
                     suggestTask = Task {
-                        try? await Task.sleep(nanoseconds: 180_000_000)
+                        try? await Task.sleep(nanoseconds: 120_000_000)
                         guard !Task.isCancelled, query == newValue else { return }
                         if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
                             suggestions = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
@@ -356,6 +365,32 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .frame(height: 46)
         .glass(cornerRadius: 23)
+    }
+
+    private var savedQuickList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("أماكنك المحفوظة")
+                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 3)
+            ForEach(store.places.prefix(5)) { saved in
+                Button { select(saved.place) } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
+                            .foregroundStyle(saved.isFavorite ? .yellow : .blue).font(.system(size: 17))
+                        Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+            }
+            Spacer().frame(height: 5)
+        }
+        .glass(cornerRadius: 22)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private var suggestionsList: some View {
@@ -667,7 +702,7 @@ struct ContentView: View {
         Form {
             Section("نمط الخريطة") {
                 Picker("النمط", selection: $styleKind) {
-                    ForEach(MapStyleKind.allCases, id: \.self) { kind in
+                    ForEach(MapStyleKind.allCases.filter { $0 != .cartoon }, id: \.self) { kind in
                         Text(kind.label).tag(kind)
                     }
                 }
@@ -771,7 +806,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.9").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.10").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -965,6 +1000,51 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
+
+    private var locStageIcon: String {
+        switch locStage {
+        case 2: return "location.north.fill"
+        case 3: return "building.2.fill"
+        default: return "location.fill"
+        }
+    }
+
+    /// One button, three stages: 1 = go to my location,
+    /// 2 = compass (or face the chosen destination), 3 = 3D buildings,
+    /// next press returns to flat north view.
+    private func advanceLocationStage() {
+        locStage = (locStage + 1) % 4
+        switch locStage {
+        case 1:
+            followUser = false
+            if let loc = locationService.location {
+                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+            }
+        case 2:
+            if let dest = selected?.coordinate, let loc = locationService.location {
+                followUser = false
+                bearingRequest = BearingRequest(degrees: bearingDegrees(from: loc.coordinate, to: dest))
+                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+            } else {
+                followUser = true
+            }
+        case 3:
+            followUser = false
+            show3D = true
+        default:
+            followUser = false
+            show3D = false
+            northReset += 1
+        }
+    }
+
+    private func bearingDegrees(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let dLon = (b.longitude - a.longitude) * .pi / 180
+        let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+    }
 
     private func select(_ place: Place) {
         searchFocused = false
