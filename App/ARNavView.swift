@@ -32,7 +32,7 @@ struct ARNavView: View {
         ZStack {
             if cameraDenied {
                 Color.black.ignoresSafeArea()
-                Text("فعّل الكاميرا من إعدادات النظام حتى تشتغل الملاحة بالكاميرا.")
+                Text("فعّل الكاميرا من إعدادات النظام حتى تشتغل الملاحة بالكاميرا.".loc)
                     .foregroundStyle(.white).multilineTextAlignment(.center).padding(30)
             } else {
                 CameraPreview().ignoresSafeArea()
@@ -55,14 +55,14 @@ struct ARNavView: View {
                     .shadow(color: .black.opacity(0.5), radius: 8)
                     .rotationEffect(.degrees(relative))
                     .animation(.easeOut(duration: 0.25), value: relative)
-                Text(aligned ? "امشِ مباشرة ✅" : (relative > 0 ? "لف يميناً" : "لف يساراً"))
+                Text(aligned ? "امشِ مباشرة ✅".loc : (relative > 0 ? "لف يميناً".loc : "لف يساراً".loc))
                     .font(.headline).foregroundStyle(.white)
                     .padding(.horizontal, 14).padding(.vertical, 7)
                     .background(Color.black.opacity(0.45), in: Capsule())
                 Spacer()
                 VStack(spacing: 4) {
                     Text(instruction).font(.headline).multilineTextAlignment(.center)
-                    Text(distance < 1000 ? "\(Int(distance.rounded())) م" : String(format: "%.1f كم", distance / 1000))
+                    Text(distance < 1000 ? "\(Int(distance.rounded())) \("م".loc)" : String(format: "%.1f %@", distance / 1000, "كم".loc))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 .foregroundStyle(.white)
