@@ -271,7 +271,7 @@ struct ContentView: View {
                 VStack(spacing: 1) {
                     Image(systemName: "sun.max.fill").font(.system(size: 16)).foregroundStyle(.yellow)
                     Text(localWeather.map { tempUnit == "f" ? "\(Int(($0.temperature * 9 / 5 + 32).rounded()))" : "\(Int($0.temperature.rounded()))" } ?? "—")
-                        .font(.system(size: 11, weight: .bold)).foregroundStyle(.black)
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(adaptiveInk)
                 }
                 .frame(width: 46, height: 46)
             }
@@ -289,7 +289,7 @@ struct ContentView: View {
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(adaptiveInk)
                     .frame(width: 46, height: 46)
             }
             .glass(cornerRadius: 23)
@@ -439,7 +439,7 @@ struct ContentView: View {
                 Button { select(saved.place) } label: {
                     HStack(spacing: 9) {
                         Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
-                            .foregroundStyle(saved.isFavorite ? .yellow : Color(white: 0.05)).font(.system(size: 17))
+                            .foregroundStyle(saved.isFavorite ? .yellow : adaptiveInk).font(.system(size: 17))
                         Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                         Spacer()
                         if let loc = locationService.location {
@@ -463,7 +463,7 @@ struct ContentView: View {
                 ForEach(suggestions) { place in
                     Button { select(place) } label: {
                         HStack(spacing: 9) {
-                            Image(systemName: "mappin.circle.fill").foregroundStyle(Color(white: 0.05)).font(.system(size: 19))
+                            Image(systemName: "mappin.circle.fill").foregroundStyle(adaptiveInk).font(.system(size: 19))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                                 if !place.address.isEmpty {
@@ -764,7 +764,7 @@ struct ContentView: View {
                     } label: {
                         HStack {
                             Image(systemName: saved.isFavorite ? "star.fill" : "mappin.circle.fill")
-                                .foregroundStyle(saved.isFavorite ? .yellow : Color(white: 0.05))
+                                .foregroundStyle(saved.isFavorite ? .yellow : adaptiveInk)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                                 if !saved.place.address.isEmpty {
@@ -1008,7 +1008,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.27").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.28").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1190,7 +1190,7 @@ struct ContentView: View {
         switch locStage {
         case 2: return (.red, .blue)       // compass stage
         case 3: return (.green, .green)  // 3D stage
-        default: return (Color(white: 0.05), Color(white: 0.05))
+        default: return (adaptiveInk, adaptiveInk)
         }
     }
 
@@ -1449,7 +1449,7 @@ extension ContentView {
     func quickPlaceRow(title: String, icon: String, place: Place?, key: String, isHome: Bool) -> some View {
         if let place {
             HStack {
-                Image(systemName: icon).foregroundStyle(Color(white: 0.05))
+                Image(systemName: icon).foregroundStyle(adaptiveInk)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.caption).foregroundStyle(.secondary)
                     Text(place.name).font(.subheadline.weight(.medium)).lineLimit(1)
