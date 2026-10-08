@@ -203,6 +203,7 @@ enum L10n {
         "فعّل الموقع حتى أكدر ألكي الأقرب إلك.": ("Enable location so I can find what's nearest to you.", "شوێن کارا بکە تا نزیکترینت بۆ بدۆزمەوە."),
         "ما كدرت أجيب الطقس هسه، جرّب بعد شوية.": ("Couldn't fetch the weather now, try again in a bit.", "ئێستا نەمتوانی کەشوهەوا بهێنم، کەمێک دواتر تاقی بکەرەوە."),
         "موقعك معروف عندي بس ما كدرت أحدد اسم الشارع.": ("I know your location but couldn't determine the street name.", "شوێنەکەت دەزانم بەڵام نەمتوانی ناوی شەقامەکە دیاری بکەم."),
+        "إعادة حساب المسار": ("Recalculating route…", "ڕێڕەوەکە دووبارە حساب دەکرێتەوە…"),
     ]
 }
 
