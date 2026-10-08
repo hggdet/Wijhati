@@ -66,8 +66,6 @@ struct ContentView: View {
     @State private var showSaved = false
     @State private var showSettings = false
     @State private var show3D = false
-    @State private var radarOn = false
-    @State private var radarTS: Int?
     @State private var isoMinutes: Int = 0
     @State private var isoPolygon: [CLLocationCoordinate2D] = []
 
@@ -157,7 +155,6 @@ struct ContentView: View {
                 isoPolygon: isoPolygon,
                 styleKind: styleKind,
                 show3D: show3D,
-                radarTimestamp: radarOn ? radarTS : nil,
                 followUser: followUser,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
@@ -239,6 +236,8 @@ struct ContentView: View {
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
+        .onAppear { applySemanticDirection() }
+        .onChange(of: language) { _, _ in applySemanticDirection() }
         .onChange(of: appearance) { _, _ in syncStyleToScheme() }
         .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
         .onChange(of: styleKind) { _, newKind in
@@ -919,10 +918,6 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
-                Toggle("رادار المطر الحي".loc, isOn: $radarOn)
-                    .onChange(of: radarOn) { _, on in
-                        if on { Task { radarTS = await GeoService.latestRadarTimestamp() } }
-                    }
                 VStack(spacing: 8) {
                     HStack {
                         Text("شريط التحكم بالزجاج".loc)
@@ -1044,7 +1039,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.34").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.35").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
@@ -1064,7 +1059,7 @@ struct ContentView: View {
         List {
             Section {
                 Button {
-                    if let loc = locationService.location, let url = styleKind.remoteURL {
+                    if let loc = locationService.location, let url = styleKind.url {
                         offlineManager.download(styleURL: url,
                                                 center: loc.coordinate, name: "منطقتي — \(styleKind.label)")
                     }
@@ -1082,18 +1077,18 @@ struct ContentView: View {
                 }
             }
             Section {
-                if offlineManager.packs.isEmpty {
+                if offlineManager.infos.isEmpty {
                     Text("لا توجد مناطق محمّلة بعد".loc).foregroundStyle(.secondary)
                 }
-                ForEach(Array(offlineManager.packs.enumerated()), id: \.offset) { _, pack in
+                ForEach(offlineManager.infos) { info in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(offlineManager.name(of: pack)).font(.subheadline.weight(.medium))
-                            Text("\(offlineManager.stateText(of: pack)) • \(offlineManager.sizeText(of: pack))")
+                            Text(info.name).font(.subheadline.weight(.medium))
+                            Text("\(info.stateText) • \(info.sizeText)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button(role: .destructive) { offlineManager.delete(pack) } label: {
+                        Button(role: .destructive) { offlineManager.delete(info) } label: {
                             Image(systemName: "trash")
                         }
                     }
@@ -1102,12 +1097,7 @@ struct ContentView: View {
         }
         .navigationTitle("خرائط بدون إنترنت".loc)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { offlineManager.reload() }
     }
-
-    // MARK: - Notifications page
-
-
 
     private var languagePage: some View {
         Form {
@@ -1228,6 +1218,19 @@ struct ContentView: View {
 
 
 
+
+    /// SwiftUI's layoutDirection environment alone did not flip lists on
+    /// the user's iOS 27 build, so force it at the UIKit level too (the
+    /// collection views under List/Form obey semanticContentAttribute),
+    /// and WijhatiApp rebuilds the whole tree on language change (.id).
+    private func applySemanticDirection() {
+        let attr: UISemanticContentAttribute = language == "en" ? .forceLeftToRight : .forceRightToLeft
+        UIView.appearance().semanticContentAttribute = attr
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows { window.semanticContentAttribute = attr }
+        }
+    }
 
     private func checkProximity(_ loc: CLLocation) {
         guard notifMaster else { return }
