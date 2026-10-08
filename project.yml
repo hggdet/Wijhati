@@ -7,7 +7,7 @@ options:
 packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
-    from: "6.0.0"
+    branch: main
 targets:
   Wijhati:
     type: application
@@ -16,6 +16,7 @@ targets:
       - App
     dependencies:
       - package: MapLibre
+        product: MapLibre
     info:
       path: App/Info.plist
       properties:
