@@ -24,8 +24,9 @@ let categories: [Category] = [
 struct ContentView: View {
     @StateObject private var locationService = LocationService()
     @StateObject private var store = PlacesStore()
-    @StateObject private var tripsStore = TripsStore()
     @StateObject private var voice = VoiceGuide()
+
+    @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
 
     @State private var query = ""
     @State private var suggestions: [Place] = []
@@ -41,23 +42,23 @@ struct ContentView: View {
     @State private var styleKind: MapStyleKind = .standard
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
+    @State private var northReset = 0
 
     @State private var showSaved = false
-    @State private var showTrips = false
-    @State private var showLayers = false
+    @State private var showSettings = false
     @State private var show3D = false
     @State private var radarOn = false
     @State private var radarTS: Int?
     @State private var isoMinutes: Int = 0
     @State private var isoPolygon: [CLLocationCoordinate2D] = []
 
-    @State private var weather: GeoService.WeatherNow?
+    @State private var placeWeather: GeoService.WeatherNow?
+    @State private var localWeather: GeoService.WeatherNow?
+    @State private var weatherFetchedAt: Date?
+    @State private var weatherForCoord: CLLocationCoordinate2D?
+    @State private var showWeatherDetail = false
     @State private var elevations: [Double] = []
     @State private var shareItem: SharePayload?
-    @State private var recordElapsed: TimeInterval = 0
-    @State private var nowTick = Date()
-
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var selectedRoute: RouteData? {
         routes.indices.contains(selectedRouteIndex) ? routes[selectedRouteIndex] : nil
@@ -66,33 +67,35 @@ struct ContentView: View {
         routes.enumerated().filter { $0.offset != selectedRouteIndex }.first?.element.coordinates ?? []
     }
 
+    private func displayTemp(_ celsius: Double) -> String {
+        if tempUnit == "f" { return "\(Int((celsius * 9 / 5 + 32).rounded()))°F" }
+        return "\(Int(celsius.rounded()))°C"
+    }
+
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             MapBridge(
                 pins: pins,
                 routeCoords: selectedRoute?.coordinates ?? [],
                 altRouteCoords: altCoords,
-                tripCoords: locationService.recordedPoints.map { $0.coordinate },
+                tripCoords: [],
                 isoPolygon: isoPolygon,
                 styleKind: styleKind,
                 show3D: show3D,
                 radarTimestamp: radarOn ? radarTS : nil,
                 followUser: followUser,
                 centerRequest: centerRequest,
-                onSelectPin: { place in select(place) }
+                northReset: northReset,
+                onSelectPin: { place in select(place) },
+                onLongPress: { coordinate in handleLongPress(coordinate) }
             )
             .ignoresSafeArea()
 
             VStack(spacing: 8) {
-                searchBar
-                if !suggestions.isEmpty { suggestionsList }
-                categoryChips
-                if !stops.isEmpty { stopsBar }
+                topBar
+                if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
-                if locationService.recording { recordingBar }
-                if let route = selectedRoute { routeBar(route) }
-                sideControlsRow
-                if let place = selected, selectedRoute == nil { placeCard(place) }
+                bottomStack
             }
             .padding(.horizontal, 10)
             .padding(.top, 6)
@@ -107,23 +110,100 @@ struct ContentView: View {
             }
         }
         .onChange(of: locationService.location) { _, newValue in
-            if let loc = newValue { voice.update(userLocation: loc) }
-        }
-        .onReceive(tick) { date in
-            nowTick = date
-            if let start = locationService.recordStartedAt {
-                recordElapsed = date.timeIntervalSince(start)
-            }
+            guard let loc = newValue else { return }
+            voice.update(userLocation: loc)
+            refreshLocalWeatherIfNeeded(loc.coordinate)
         }
         .sheet(isPresented: $showSaved) { savedSheet }
-        .sheet(isPresented: $showTrips) { tripsSheet }
-        .sheet(isPresented: $showLayers) { layersSheet }
+        .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
     }
 
-    // MARK: - Top UI
+    // MARK: - Top bar (weather + compass)
+
+    private var topBar: some View {
+        HStack(alignment: .top) {
+            Button { showWeatherDetail.toggle(); refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true) } label: {
+                VStack(spacing: 1) {
+                    Image(systemName: "cloud.sun.fill").font(.system(size: 15))
+                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .frame(width: 46, height: 46)
+            }
+            .glass(cornerRadius: 23)
+
+            Spacer()
+
+            Button {
+                northReset += 1
+                followUser = false
+                if let loc = locationService.location {
+                    centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+                }
+            } label: {
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .rotationEffect(.degrees(-locationService.heading))
+                    .frame(width: 46, height: 46)
+            }
+            .glass(cornerRadius: 23)
+        }
+    }
+
+    private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("الطقس عند موقعك").font(.caption.weight(.bold))
+                Text("\(displayTemp(w.temperature)) • \(w.label)").font(.subheadline.weight(.medium))
+                Text("🌅 شروق \(w.sunrise) • 🌇 غروب \(w.sunset)").font(.caption2).foregroundStyle(.secondary)
+                Text("الوحدة من الإعدادات ⚙️: \(tempUnit == "f" ? "فهرنهايت" : "سيليزية")")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .glass(cornerRadius: 18)
+            Spacer()
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func refreshLocalWeatherIfNeeded(_ coordinate: CLLocationCoordinate2D?, force: Bool = false) {
+        guard let coordinate else { return }
+        if !force, let last = weatherFetchedAt, let lastCoord = weatherForCoord,
+           Date().timeIntervalSince(last) < 900,
+           CLLocation(latitude: lastCoord.latitude, longitude: lastCoord.longitude)
+               .distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) < 2000 {
+            return
+        }
+        weatherFetchedAt = Date()
+        weatherForCoord = coordinate
+        Task {
+            localWeather = await GeoService.weather(lat: coordinate.latitude, lon: coordinate.longitude)
+        }
+    }
+
+    // MARK: - Bottom stack
+
+    private var bottomStack: some View {
+        VStack(spacing: 8) {
+            if let place = selected, selectedRoute == nil { placeCard(place) }
+            if let route = selectedRoute { routeBar(route) }
+            if !stops.isEmpty { stopsBar }
+            if !suggestions.isEmpty { suggestionsList }
+            categoryChips
+            HStack(spacing: 8) {
+                searchBar
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 46, height: 46)
+                }
+                .glass(cornerRadius: 23)
+            }
+        }
+    }
 
     private var searchBar: some View {
         HStack(spacing: 8) {
@@ -150,8 +230,8 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glass(cornerRadius: 22)
+        .frame(height: 46)
+        .glass(cornerRadius: 23)
     }
 
     private var suggestionsList: some View {
@@ -212,57 +292,6 @@ struct ContentView: View {
         }
     }
 
-    private var sideControlsRow: some View {
-        HStack(alignment: .bottom) {
-            VStack(spacing: 9) {
-                GlassCircleButton(icon: followUser ? "location.fill" : "location") {
-                    followUser.toggle()
-                    if followUser, let loc = locationService.location {
-                        centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
-                    }
-                }
-                GlassCircleButton(icon: "gearshape.fill") { showLayers = true }
-                GlassCircleButton(icon: locationService.recording ? "stop.circle.fill" : "record.circle") {
-                    toggleRecording()
-                }
-                .foregroundStyle(locationService.recording ? .red : .blue)
-                GlassCircleButton(icon: "bookmark.fill") { showSaved = true }
-                GlassCircleButton(icon: "figure.walk.motion") { showTrips = true }
-            }
-            Spacer()
-        }
-    }
-
-    // MARK: - Recording
-
-    private var recordingBar: some View {
-        HStack(spacing: 14) {
-            Circle().fill(.red).frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("تسجيل رحلة").font(.caption.weight(.bold))
-                Text("\(formatDuration(recordElapsed)) • \(formatDistance(locationService.recordedDistance))")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if let loc = locationService.location {
-                Text(String(format: "%.0f كم/س", max(loc.speed, 0) * 3.6)).font(.caption.weight(.semibold))
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .glass(cornerRadius: 16)
-    }
-
-    private func toggleRecording() {
-        if locationService.recording {
-            if let trip = locationService.stopRecording() {
-                tripsStore.add(trip)
-            }
-        } else {
-            locationService.startRecording()
-            recordElapsed = 0
-        }
-    }
-
     // MARK: - Route UI
 
     private func routeBar(_ route: RouteData) -> some View {
@@ -308,6 +337,7 @@ struct ContentView: View {
                 Spacer()
                 Button {
                     if let place = selected {
+                        followUser = true
                         voice.start(steps: route.steps, destination: place.coordinate)
                     }
                 } label: {
@@ -335,11 +365,11 @@ struct ContentView: View {
                         Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                     if let loc = locationService.location {
-                        let d = loc.distance(from: CLLocation(coordinate: place.coordinate))
+                        let d = loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
                         Text("يبعد \(formatDistance(d)) عنك").font(.caption2).foregroundStyle(.secondary)
                     }
-                    if let w = weather {
-                        Text("🌡 \(Int(w.temperature.rounded()))° \(w.label) • شروق \(w.sunrise) • غروب \(w.sunset)")
+                    if let w = placeWeather {
+                        Text("🌡 \(displayTemp(w.temperature)) \(w.label) • شروق \(w.sunrise) • غروب \(w.sunset)")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
@@ -359,7 +389,7 @@ struct ContentView: View {
                     let added = store.toggle(place)
                     if added { UINotificationFeedbackGenerator().notificationOccurred(.success) }
                 } label: {
-                    Label(store.contains(place) ? "محفوظ" : "حفظ", systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
+                    Label(store.contains(place) ? "محفوظ" : "حفظ الموقع", systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
@@ -377,8 +407,10 @@ struct ContentView: View {
                     }
                 }
                 Button { shareItem = SharePayload(text: "\(place.name)\n\(place.mapsLink.absoluteString)") } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .padding(8).background(Color.white.opacity(0.14), in: Circle())
+                    Label("مشاركة", systemImage: "square.and.arrow.up")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 8)
+                        .background(Color.white.opacity(0.14), in: Capsule())
                 }
             }
         }
@@ -386,7 +418,7 @@ struct ContentView: View {
         .glass(cornerRadius: 20)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .task(id: place.id) {
-            weather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
+            placeWeather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
         }
     }
 
@@ -404,7 +436,7 @@ struct ContentView: View {
                 if !voice.arrived {
                     Text(formatDistance(voice.distanceToNext)).font(.headline).foregroundStyle(.gray)
                 }
-                Button { voice.stop() } label: {
+                Button { voice.stop(); followUser = false } label: {
                     Text("إيقاف الملاحة")
                         .font(.headline).foregroundStyle(.white)
                         .padding(.horizontal, 26).padding(.vertical, 13)
@@ -469,40 +501,7 @@ struct ContentView: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var tripsSheet: some View {
-        NavigationStack {
-            List {
-                if tripsStore.trips.isEmpty {
-                    Text("لا توجد رحلات مسجلة بعد. اضغط زر التسجيل وابدأ.").foregroundStyle(.secondary)
-                }
-                ForEach(tripsStore.trips) { trip in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(trip.startedAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.subheadline.weight(.medium))
-                            Text("\(formatDistance(trip.distance)) • \(formatDuration(trip.duration)) • متوسط \(String(format: "%.0f", trip.averageSpeedKmh)) كم/س")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button { shareItem = SharePayload(text: trip.gpx()) } label: {
-                            Label("GPX", systemImage: "square.and.arrow.up").font(.caption)
-                        }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) { tripsStore.remove(trip) } label: {
-                            Label("حذف", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-            .navigationTitle("رحلاتي")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showTrips = false } } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var layersSheet: some View {
+    private var settingsSheet: some View {
         NavigationStack {
             Form {
                 Section("نمط الخريطة") {
@@ -511,6 +510,13 @@ struct ContentView: View {
                             Text(kind.label).tag(kind)
                         }
                     }
+                }
+                Section("وحدة الحرارة") {
+                    Picker("الوحدة", selection: $tempUnit) {
+                        Text("سيليزية °C").tag("c")
+                        Text("فهرنهايت °F").tag("f")
+                    }
+                    .pickerStyle(.segmented)
                 }
                 Section("طبقات") {
                     Toggle("أبنية ثلاثية الأبعاد", isOn: $show3D)
@@ -531,6 +537,14 @@ struct ContentView: View {
                         Task { await updateIsochrone(minutes: minutes) }
                     }
                 }
+                Section {
+                    Button {
+                        showSettings = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showSaved = true }
+                    } label: {
+                        Label("أماكني المحفوظة", systemImage: "bookmark.fill")
+                    }
+                }
                 Section("حول التطبيق") {
                     HStack {
                         Text("التطبيق")
@@ -540,7 +554,7 @@ struct ContentView: View {
                     HStack {
                         Text("الإصدار")
                         Spacer()
-                        Text("1.1").foregroundStyle(.secondary)
+                        Text("1.2").foregroundStyle(.secondary)
                     }
                     HStack {
                         Text("المطوّر")
@@ -553,9 +567,9 @@ struct ContentView: View {
             }
             .navigationTitle("الإعدادات")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showLayers = false } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق") { showSettings = false } } }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Actions
@@ -566,6 +580,20 @@ struct ContentView: View {
         if !pins.contains(place) { pins = [place] }
         centerRequest = CenterRequest(coordinate: place.coordinate, zoom: 15)
         followUser = false
+    }
+
+    private func handleLongPress(_ coordinate: CLLocationCoordinate2D) {
+        let temp = Place.make(name: "موقع مُحدد",
+                               address: String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude),
+                               lat: coordinate.latitude, lon: coordinate.longitude)
+        select(temp)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        Task {
+            if let resolved = await GeoService.reverse(lat: coordinate.latitude, lon: coordinate.longitude),
+               selected?.id == temp.id {
+                select(resolved)
+            }
+        }
     }
 
     private func runSearch() async {
@@ -585,10 +613,9 @@ struct ContentView: View {
         let results = await GeoService.nearby(amenity: cat.key, group: cat.group, near: loc.coordinate)
         searching = false
         pins = results
-        if let first = results.first {
+        if !results.isEmpty {
             centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
             selected = nil
-            _ = first
         }
     }
 
@@ -610,6 +637,7 @@ struct ContentView: View {
         routes = []
         elevations = []
         voice.stop()
+        followUser = false
     }
 
     private func updateIsochrone(minutes: Int) async {
@@ -619,18 +647,6 @@ struct ContentView: View {
         }
         isoPolygon = await GeoService.isochrone(center: loc, minutes: minutes,
                                                 costing: transport == .walking ? "pedestrian" : "auto")
-    }
-}
-
-struct GlassCircleButton: View {
-    var icon: String
-    var action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 16, weight: .semibold))
-                .frame(width: 42, height: 42)
-        }
-        .glass(cornerRadius: 21)
     }
 }
 
