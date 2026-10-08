@@ -924,30 +924,61 @@ struct ContentView: View {
 
     private var helpPage: some View {
         List {
-            Section("شلون تستخدم وجهتي؟") {
-                Label("ابحث عن أي مكان أو عنوان من شريط البحث تحت", systemImage: "magnifyingglass")
+            Section("تعليمات الاستخدام") {
+                Label("ابحث عن أي مكان من شريط البحث — الاقتراحات تظهر ويا المسافة لكل نتيجة", systemImage: "magnifyingglass")
                 Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان", systemImage: "mappin.and.ellipse")
-                Label("من بطاقة المكان: الاتجاهات، حفظ الموقع، ومشاركته", systemImage: "bookmark")
-                Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك", systemImage: "waveform")
-                Label("غيّر نمط الخريطة (قياسية، فاتحة، كرتونية، قمر صناعي) من «الخريطة والطبقات»", systemImage: "map")
-                Label("زر البوصلة فوق يرجّع الشمال ويركّز على موقعك، وزر الطقس يعرض حرارة موقعك", systemImage: "location.north.fill")
+                Label("اسحب بطاقة المكان للأعلى حتى تشوف العنوان الكامل والإحداثيات", systemImage: "square.and.arrow.up.on.square")
+                Label("زر الموقع: ضغطة تركّز عليك، الثانية بوصلة باتجاه وجهتك، الثالثة أبنية ثلاثية الأبعاد", systemImage: "location.fill")
+                Label("شريط «مصمت — زجاجي» فوق يتحكم بشفافية واجهة التطبيق مثلما تتحكم بالصوت", systemImage: "slider.horizontal.3")
+                Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»", systemImage: "waveform")
+                Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة", systemImage: "house.fill")
+                Label("نزّل خرائط منطقتك من «الخرائط دون اتصال» حتى تتصفح بدون إنترنت", systemImage: "arrow.down.circle")
             }
-            Section("ملاحظاتك تهمّنا") {
+            Section("أسئلة شائعة") {
+                DisclosureGroup("ليش بعض أسماء الأماكن خطأ أو ناقصة؟") {
+                    Text("بيانات الخريطة من OpenStreetMap ويحرّرها متطوعون حول العالم. وجهتي يعرض الاسم العربي متى ما توفّر، وبعض الأخطاء من المصدر نفسه وتتصلح بتحديثات البيانات.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("شلون أبدّل نمط الخريطة؟") {
+                    Text("من الإعدادات ← «الخريطة والطبقات» تختار النمط (قياسية، فاتحة، داكنة، قمر صناعي) وتفعّل رادار المطر والأبنية ثلاثية الأبعاد.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("هل يشتغل التطبيق بدون إنترنت؟") {
+                    Text("بعد تنزيل منطقة من «الخرائط دون اتصال» تقدر تتصفح خريطتها بدون نت. البحث وحساب المسارات والطقس يحتاجون اتصالاً.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("شلون أضيف مكاناً مو موجود بالخريطة؟") {
+                    Text("افتح أي مكان قريب واضغط «نشر محلي» من بطاقته، أو ثبّت دبوساً بضغطة مطوّلة وانشر المكان من بطاقته — يظهر عندك وبالمجتمع.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("شلون أوصل للبيت أو الشغل بسرعة؟") {
+                    Text("ثبّتهما أول مرة من «أماكني المحفوظة» ← البيت/الشغل، وبعدها الاتجاهات بضغطة وحدة من نفس الصفحة أو من ودجت الشاشة الرئيسية.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                DisclosureGroup("ليش ما تغيّر وقت المسار بين السيارة والمشي؟") {
+                    Text("كل نمط يُحسب من خادم مختلف. إذا تعذّر حساب نمط معيّن يطلع لك تنبيه برتقالي — تأكد من اتصالك وجرّب مرة ثانية.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Section("تواصل ومشاركة") {
                 Link(destination: URL(string: "mailto:id9871456@gmail.com?subject=" + ("ملاحظات وجهتي".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))!) {
                     Label("إرسال ملاحظات للمطوّر", systemImage: "envelope.fill")
                 }
                 ShareLink(item: "جرّب تطبيق وجهتي — خرائط وملاحة عربية أنيقة") {
                     Label("مشاركة التطبيق مع صديق", systemImage: "square.and.arrow.up")
                 }
-                Button {
-                    UIPasteboard.general.string = "id9871456@gmail.com"
-                } label: {
-                    Label("نسخ إيميل الملاحظات", systemImage: "doc.on.doc")
-                }
             }
-            Section("مصادر البيانات") {
-                Text("الخرائط: © مساهمو OpenStreetMap — الأنماط: VersaTiles وCyclOSM وصور Esri. الطقس: Open-Meteo. المسارات: OSRM. البحث: Photon.")
-                    .font(.caption).foregroundStyle(.secondary)
+            Section {
+                VStack(spacing: 4) {
+                    Text("من تطوير")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("عبدالباسط خضير")
+                        .font(.headline)
+                    Text("© 2026 عبدالباسط خضير — جميع الحقوق محفوظة")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
             }
         }
         .navigationTitle("مساعدة وملاحظات")
@@ -970,7 +1001,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.22").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.23").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية"); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)").font(.caption2).foregroundStyle(.secondary) }
