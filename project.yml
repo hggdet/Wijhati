@@ -36,8 +36,8 @@ targets:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "1.12.0"
-        CURRENT_PROJECT_VERSION: "13"
+        MARKETING_VERSION: "1.13.0"
+        CURRENT_PROJECT_VERSION: "14"
         CODE_SIGN_STYLE: Manual
     preBuildScripts:
       - name: Decode App Icon
