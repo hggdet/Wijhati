@@ -25,7 +25,6 @@ struct CommunityPlace: Codable, Identifiable, Equatable {
 final class CommunityStore: ObservableObject {
     @Published var myPlaces: [CommunityPlace] = [] { didSet { persist() } }
     @Published var remotePlaces: [CommunityPlace] = []
-    @Published var remoteReports: [RoadReport] = []
     private let key = "wijhati.myPlaces.v1"
 
     init() {
@@ -63,7 +62,6 @@ final class CommunityStore: ObservableObject {
     func refresh() async {
         guard Backend.isConfigured else { return }
         async let placeRows = Backend.fetchRows("local_places?select=*&order=created_at.desc&limit=300")
-        async let reportRows = Backend.fetchRows("road_reports?select=*&order=created_at.desc&limit=200")
         let places = await placeRows.compactMap { row -> CommunityPlace? in
             guard let id = row["id"] as? String, let name = row["name"] as? String,
                   let lat = (row["latitude"] as? NSNumber)?.doubleValue,
@@ -74,28 +72,9 @@ final class CommunityStore: ObservableObject {
                                   latitude: lat, longitude: lon,
                                   createdAt: ISOTime.parse(row["created_at"]) ?? Date())
         }
-        let reports = await reportRows.compactMap { row -> RoadReport? in
-            guard let id = row["id"] as? String, let kind = row["kind"] as? String,
-                  let lat = (row["latitude"] as? NSNumber)?.doubleValue,
-                  let lon = (row["longitude"] as? NSNumber)?.doubleValue else { return nil }
-            return RoadReport(id: id, kind: kind, latitude: lat, longitude: lon,
-                              createdAt: ISOTime.parse(row["created_at"]) ?? Date(),
-                              confirmedAt: ISOTime.parse(row["confirmed_at"]) ?? ISOTime.parse(row["created_at"]) ?? Date())
-        }
         remotePlaces = places
-        remoteReports = reports.filter { Date().timeIntervalSince($0.confirmedAt) < 3 * 3600 }
     }
 
-    static func uploadReport(_ report: RoadReport) async {
-        guard Backend.isConfigured else { return }
-        await Backend.insert(table: "road_reports", payload: [
-            "id": report.id, "kind": report.kind,
-            "latitude": report.latitude, "longitude": report.longitude,
-            "device_id": Backend.deviceID,
-            "created_at": ISOTime.string(report.createdAt),
-            "confirmed_at": ISOTime.string(report.confirmedAt)
-        ])
-    }
 
     static func uploadPlace(_ place: CommunityPlace) async {
         guard Backend.isConfigured else { return }
