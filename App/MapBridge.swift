@@ -82,7 +82,6 @@ struct MapBridge: UIViewRepresentable {
     var routeCoords: [CLLocationCoordinate2D]
     var altRouteCoords: [CLLocationCoordinate2D]
     var tripCoords: [CLLocationCoordinate2D]
-    var isoPolygon: [CLLocationCoordinate2D]
     var styleKind: MapStyleKind
     var show3D: Bool
     var followUser: Bool
@@ -287,7 +286,7 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Layers
         func refreshLayers(style: MLNStyle) {
-            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.isoPolygon.count)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)-\(parent.isoPolygon.last?.longitude ?? 0)"
+            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)"
             if signature == lastLayerSignature { return }
             lastLayerSignature = signature
             updatePOILabels(style: style)
@@ -297,7 +296,6 @@ struct MapBridge: UIViewRepresentable {
                        color: .systemBlue, width: 6, opacity: 1.0)
             updateLine(style: style, id: "trip", coords: parent.tripCoords,
                        color: .systemOrange, width: 5, opacity: 0.95)
-            updateIsochrone(style: style)
             updateBuildings(style: style)
         }
 
@@ -332,33 +330,6 @@ struct MapBridge: UIViewRepresentable {
             }
         }
 
-        private func updateIsochrone(style: MLNStyle) {
-            let sourceID = "iso-source"
-            let coords = parent.isoPolygon
-            if coords.count >= 3 {
-                let obj: [String: Any] = ["type": "Polygon",
-                    "coordinates": [coords.map { [$0.longitude, $0.latitude] }]]
-                if let data = try? JSONSerialization.data(withJSONObject: obj),
-                   let shape = try? MLNShape(data: data, encoding: String.Encoding.utf8.rawValue) {
-                    if let source = style.source(withIdentifier: sourceID) as? MLNShapeSource {
-                        source.shape = shape
-                    } else {
-                        let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
-                        style.addSource(source)
-                        let fill = MLNFillStyleLayer(identifier: "iso-fill", source: source)
-                        fill.fillColor = NSExpression(forConstantValue: UIColor.systemTeal)
-                        fill.fillOpacity = NSExpression(forConstantValue: 0.22)
-                        style.addLayer(fill)
-                        let line = MLNLineStyleLayer(identifier: "iso-line", source: source)
-                        line.lineColor = NSExpression(forConstantValue: UIColor.systemTeal)
-                        line.lineWidth = NSExpression(forConstantValue: 2)
-                        style.addLayer(line)
-                    }
-                }
-            } else if let source = style.source(withIdentifier: sourceID) as? MLNShapeSource {
-                source.shape = nil
-            }
-        }
 
         private func updatePOILabels(style: MLNStyle) {
             let layerID = "wijhati-poi-labels"
