@@ -75,6 +75,7 @@ final class ReportsStore: ObservableObject {
                                 latitude: coordinate.latitude, longitude: coordinate.longitude,
                                 createdAt: Date(), confirmedAt: Date())
         reports.append(report)
+        Task { await CommunityStore.uploadReport(report) }
         return report
     }
     func confirm(_ id: String) {
