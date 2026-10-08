@@ -26,6 +26,9 @@ struct ContentView: View {
     @StateObject private var store = PlacesStore()
     @StateObject private var voice = VoiceGuide()
     @StateObject private var reportsStore = ReportsStore()
+    @StateObject private var community = CommunityStore()
+    @State private var showAssistant = false
+    @State private var publishPlace: Place?
     @StateObject private var offlineManager = OfflineManager()
 
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
@@ -76,7 +79,15 @@ struct ContentView: View {
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
-        pins + reportsStore.activeReports.map { $0.asPlace() }
+        let mine = Set(reportsStore.activeReports.map { $0.id })
+        let remoteReports = community.remoteReports.filter { !mine.contains($0.id) }
+        return pins + reportsStore.activeReports.map { $0.asPlace() }
+            + remoteReports.map { $0.asPlace() }
+            + community.allPlaces.map { $0.asPlace() }
+    }
+    private var allActiveReports: [RoadReport] {
+        let mine = Set(reportsStore.activeReports.map { $0.id })
+        return reportsStore.activeReports + community.remoteReports.filter { !mine.contains($0.id) }
     }
     private var schemeOverride: ColorScheme? {
         if appearance == "dark" { return .dark }
@@ -202,6 +213,21 @@ struct ContentView: View {
         }
         .preferredColorScheme(schemeOverride)
         .sheet(isPresented: $showSaved) { savedSheet }
+        .sheet(isPresented: $showAssistant) {
+            AssistantView(userLocation: locationService.location?.coordinate,
+                          reports: allActiveReports) { place in
+                select(place)
+            }
+        }
+        .sheet(item: $publishPlace) { place in
+            AddPlaceSheet(place: place) { name, category, note in
+                community.addPlace(name: name, category: category, note: note, at: place.coordinate)
+                publishPlace = nil
+            }
+        }
+        .task {
+            await community.refresh()
+        }
         .sheet(isPresented: $showReportSheet) { reportSheet }
         .fullScreenCover(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
@@ -242,6 +268,12 @@ struct ContentView: View {
 
             Spacer()
 
+            Button { showAssistant = true } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 46, height: 46)
+                    .glassCircle()
+            }
             Button { showSettings = true } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 18, weight: .semibold))
@@ -514,6 +546,14 @@ struct ContentView: View {
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
                 }
+                if !place.id.hasPrefix("report-") && !place.id.hasPrefix("community-") {
+                    Button { publishPlace = place } label: {
+                        Label("نشر محلي", systemImage: "mappin.and.ellipse")
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 10).padding(.vertical, 8)
+                            .background(Color.purple.opacity(0.18), in: Capsule())
+                    }
+                }
                 Button { stops.append(place) } label: {
                     Label("توقف", systemImage: "flag")
                         .font(.caption.weight(.medium))
@@ -773,7 +813,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار"); Spacer(); Text("1.12").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار"); Spacer(); Text("1.13").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر"); Spacer(); Text("عبدالباسط خضير").foregroundStyle(.secondary) }
                 HStack { Text("المحرك"); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
             }
@@ -1250,5 +1290,62 @@ private struct RouteLineShape: Shape {
                    control1: CGPoint(x: rect.maxX * 0.35, y: rect.maxY * 0.66),
                    control2: CGPoint(x: rect.maxX * 0.62, y: rect.maxY * 0.86))
         return p
+    }
+}
+
+
+// MARK: - Publish a local place (Local Intelligence contribution)
+struct AddPlaceSheet: View {
+    var place: Place
+    var onPublish: (String, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var category: String = "محل"
+    @State private var note: String = ""
+    private let cats = ["محل", "مطعم", "كافيه", "صيدلية", "خدمة", "معلم", "أخرى"]
+
+    init(place: Place, onPublish: @escaping (String, String, String) -> Void) {
+        self.place = place
+        self.onPublish = onPublish
+        _name = State(initialValue: place.name == "موقع مُحدد" ? "" : place.name)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("اسم المكان") {
+                    TextField("مثال: مخبز التنور", text: $name)
+                }
+                Section("النوع") {
+                    Picker("النوع", selection: $category) {
+                        ForEach(cats, id: \.self) { Text($0) }
+                    }
+                    .pickerStyle(.menu)
+                }
+                Section("معلومة إضافية (اختياري)") {
+                    TextField("ساعات الفتح، رقم، وصف قصير…", text: $note)
+                }
+                Section {
+                    Text(Backend.isConfigured
+                         ? "ينشر لكل مستخدمي وجهتي وينحفظ بجهازك."
+                         : "ينحفظ بجهازك هسه، وينشر للكل من يشتغل السيرفر المشترك.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("نشر مكان محلي")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("إلغاء") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("نشر") {
+                        onPublish(name.trimmingCharacters(in: .whitespaces), category, note)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
     }
 }
