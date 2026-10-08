@@ -236,6 +236,9 @@ enum GeoService {
             }
         }
         guard !points.isEmpty else { return routes }
+        // Cap the batched query: a cross-country route can have 100+ turns
+        // and Overpass would time out, losing every landmark.
+        if points.count > 40 { points = Array(points.prefix(40)) }
         let clauses = points.map { p in
             "nwr[\"name\"][\"amenity\"~\"place_of_worship|pharmacy|hospital|school|fuel|marketplace|cafe|restaurant\"](around:80,\(p.latitude),\(p.longitude));"
         }.joined(separator: "\n")
@@ -402,8 +405,14 @@ enum GeoService {
 
     // MARK: - HTTP helpers
     static func getJSON(_ url: URL) async -> Any? {
+        // A real User-Agent + a sane timeout: Nominatim/Photon ask for an
+        // identifying UA, and the shared session's 60 s default can leave
+        // the UI hanging on a dead connection.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.setValue("Wijhati/1.34 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            let (data, _) = try await URLSession.shared.data(for: request)
             return try JSONSerialization.jsonObject(with: data)
         } catch { return nil }
     }
