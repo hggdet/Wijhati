@@ -26,6 +26,7 @@ let categories: [Category] = [
 struct ContentView: View {
     @StateObject private var locationService = LocationService()
     @StateObject private var store = PlacesStore()
+    @StateObject private var historyStore = SearchHistoryStore()
     @StateObject private var voice = VoiceGuide()
     @StateObject private var community = CommunityStore()
     @State private var showAssistant = false
@@ -73,6 +74,8 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var show3D = false
     @State private var placeWeather: GeoService.WeatherNow?
+    @State private var placeDetails: GeoService.PlaceDetails?
+    @State private var searchPins: [Place] = []
     @State private var localWeather: GeoService.WeatherNow?
     @State private var weatherFetchedAt: Date?
     @State private var weatherForCoord: CLLocationCoordinate2D?
@@ -213,7 +216,7 @@ struct ContentView: View {
 
             if showSearch { searchOverlay }
             if voice.active { pocketOverlay }
-            if showIntro { WorldIntroView() }
+            if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
         }
         .onAppear {
             locationService.request()
@@ -411,7 +414,10 @@ struct ContentView: View {
                 .frame(height: 46)
                 .glass(cornerRadius: 23)
                 if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    if !store.places.isEmpty { savedQuickList }
+                    VStack(spacing: 8) {
+                        if !historyStore.items.isEmpty { historyList }
+                        if !store.places.isEmpty { savedQuickList }
+                    }
                 } else if !suggestions.isEmpty {
                     suggestionsList
                 }
@@ -489,6 +495,42 @@ struct ContentView: View {
                         Spacer()
                         if let loc = locationService.location {
                             Text(fmtDist(loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))))
+                                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+            }
+            Spacer().frame(height: 5)
+        }
+        .glass(cornerRadius: 22)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private var historyList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("الأخيرة".loc)
+                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Spacer()
+                Button("مسح الكل".loc) { historyStore.clear() }
+                    .font(.caption2.weight(.bold))
+            }
+            .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 3)
+            ForEach(historyStore.items) { place in
+                Button { select(place) } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary).font(.system(size: 16))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                            if !place.address.isEmpty {
+                                Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        Spacer()
+                        if let loc = locationService.location {
+                            Text(fmtDist(loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))))
                                 .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                         }
                     }
@@ -695,6 +737,34 @@ struct ContentView: View {
             if placeSheetFull {
                 Divider().opacity(0.4)
                 VStack(alignment: .leading, spacing: 8) {
+                    if let photo = placeDetails?.photoURL {
+                        AsyncImage(url: photo) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: { Color.secondary.opacity(0.15) }
+                        .frame(height: 130).frame(maxWidth: .infinity)
+                        .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    if let d = placeDetails {
+                        if let hours = d.openingHours {
+                            HStack(spacing: 6) {
+                                Circle().fill(d.isOpenNow == true ? Color.green : (d.isOpenNow == false ? Color.red : Color.secondary))
+                                    .frame(width: 8, height: 8)
+                                Text(d.isOpenNow == true ? "مفتوح الآن".loc : (d.isOpenNow == false ? "مغلق الآن".loc : "ساعات الدوام".loc))
+                                    .font(.caption.weight(.semibold))
+                                Text(hours).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                        }
+                        if let phone = d.phone, let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
+                            Link(destination: url) {
+                                Label(phone, systemImage: "phone.fill").font(.caption.weight(.medium))
+                            }
+                        }
+                        if let site = d.website, let url = URL(string: site.hasPrefix("http") ? site : "https://\(site)") {
+                            Link(destination: url) {
+                                Label("الموقع الإلكتروني".loc, systemImage: "globe").font(.caption.weight(.medium))
+                            }
+                        }
+                    }
                     if !place.address.isEmpty {
                         Label(place.address, systemImage: "signpost.right.and.left")
                             .font(.caption).foregroundStyle(.secondary)
@@ -753,7 +823,9 @@ struct ContentView: View {
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .task(id: place.id) {
+            placeDetails = nil
             placeWeather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
+            placeDetails = await GeoService.details(for: place)
         }
     }
 
@@ -1064,7 +1136,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.40").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.41").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1365,6 +1437,9 @@ struct ContentView: View {
     }
 
     private func select(_ place: Place) {
+        if showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id }) {
+            historyStore.add(place)
+        }
         showSearch = false
         routeNotice = nil
         placeSheetFull = false
@@ -1397,6 +1472,7 @@ struct ContentView: View {
         let results = await GeoService.search(text, near: locationService.location?.coordinate)
         searching = false
         pins = results
+        searchPins = results
         suggestions = []
         if let first = results.first { select(first); pins = results }
     }
