@@ -44,8 +44,8 @@ targets:
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "1.39.0"
-        CURRENT_PROJECT_VERSION: "41"
+        MARKETING_VERSION: "1.40.0"
+        CURRENT_PROJECT_VERSION: "42"
         CODE_SIGN_STYLE: Manual
     preBuildScripts:
       - name: Decode App Icon
@@ -70,8 +70,8 @@ targets:
         PRODUCT_NAME: WijhatiWidget
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
-        MARKETING_VERSION: "1.39.0"
-        CURRENT_PROJECT_VERSION: "41"
+        MARKETING_VERSION: "1.40.0"
+        CURRENT_PROJECT_VERSION: "42"
         CODE_SIGN_STYLE: Manual
         SKIP_INSTALL: YES
     entitlements:
