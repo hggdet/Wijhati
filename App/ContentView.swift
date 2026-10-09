@@ -48,7 +48,7 @@ struct ContentView: View {
     @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.officialLayer") private var officialEnabled = true
     @AppStorage("wijhati.azureKey") private var azureKey = ""
-    @AppStorage("wijhati.azureRegion") private var azureRegion = ""
+    @AppStorage("wijhati.azureRegion") private var azureRegion = "eastus"
     @AppStorage("wijhati.azureVoice") private var azureVoice = "ar-IQ-BasselNeural"
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
@@ -1279,7 +1279,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.45").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.46").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
