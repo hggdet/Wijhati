@@ -138,7 +138,7 @@ enum L10n {
         "مفتاح Azure": ("Azure key", "کلیلی Azure"),
         "المنطقة (Region)": ("Region (e.g. eastus)", "هەرێم (Region)"),
         "صوت الجهاز": ("Device voice", "دەنگی ئامێرەکە"),
-        "من بوابة Azure أنشئ مورد Speech بالخطة المجانية F0، ثم انسخ المفتاح والمنطقة (مثل eastus) من صفحة Keys and Endpoint والصقهما هنا. بدون مفتاح يعمل صوت الجهاز بالأسفل.": ("In the Azure portal create a Speech resource on the free F0 tier, then copy the key and region (e.g. eastus) from Keys and Endpoint and paste them here. Without a key, the device voice below is used.", "لە پۆرتالی Azure سەرچاوەیەکی Speech دروست بکە بە پلانی بەخۆڕایی F0، پاشان کلیل و هەرێمەکە لە Keys and Endpoint کۆپی بکە و لێرە دایبنێ. بەبێ کلیل دەنگی ئامێرەکە بەکاردێت."),
+        "من بوابة Azure أنشئ مورد Speech بالخطة المجانية F0، ثم انسخ المفتاح والمنطقة (مثل eastus) من صفحة Keys and Endpoint والصقهما هنا. بدون مفتاح يعمل صوت الجهاز بالأسفل.": ("A built-in key is already active, so the cloud voices work immediately. To use your own Azure Speech key instead, paste it and its region here.", "کلیلێکی ناوەکی چالاکە، دەنگەکان ڕاستەوخۆ کاردەکەن. بۆ بەکارهێنانی کلیلەکەی خۆت لێرە دایبنێ."),
         "المسافة الكلية": ("Total distance", "کۆی مەودا"),
         "الوقت التقريبي": ("Approx. time", "کاتی نزیکەیی"),
         "الحصول على مفتاح مجاني": ("Get a free key", "کلیلێکی خۆڕایی وەربگرە"),
