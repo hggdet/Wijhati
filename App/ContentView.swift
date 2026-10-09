@@ -42,6 +42,7 @@ struct ContentView: View {
     @AppStorage("wijhati.language") private var language = "ar"
     @AppStorage("wijhati.voiceID") private var voiceID = ""
     @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
+    @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
@@ -245,6 +246,16 @@ struct ContentView: View {
         .onChange(of: styleKind) { _, newKind in
             // A manual style pick always wins over the automatic night sync.
             if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
+            if newKind == .maptiler, MapStyleKind.maptilerKey.isEmpty {
+                routeNotice = "أضف مفتاح MapTiler المجاني من الإعدادات ← الخريطة".loc
+            }
+        }
+        .onChange(of: maptilerKey) { _, _ in
+            // A new key invalidates the cached patched MapTiler style
+            // (its embedded tile/font URLs carry the old key).
+            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-maptiler-ar2.json"))
+            MapStyleKind.prepareArabicStyles()
         }
         .sheet(isPresented: $showSaved) { savedSheet }
         .fullScreenCover(isPresented: $showAR) {
@@ -935,6 +946,18 @@ struct ContentView: View {
                 }
                 .padding(.vertical, 4)
             }
+            Section {
+                TextField("مفتاح MapTiler".loc, text: $maptilerKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Link("الحصول على مفتاح مجاني".loc,
+                     destination: URL(string: "https://cloud.maptiler.com/account/keys/")!)
+                    .font(.footnote)
+            } header: {
+                Text("MapTiler")
+            } footer: {
+                Text("سجّل مجاناً في maptiler.com، انسخ مفتاح API والصقه هنا، ثم اختر MapTiler من «النمط» بالأعلى".loc)
+            }
         }
         .navigationTitle("الخريطة".loc)
         .navigationBarTitleDisplayMode(.inline)
@@ -1041,7 +1064,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.39").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.40").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
