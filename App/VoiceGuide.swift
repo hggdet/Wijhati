@@ -30,6 +30,7 @@ final class VoiceGuide: ObservableObject {
         if let first = self.steps.first {
             currentInstruction = first.instruction
             speak("بعد \(formatDistance(first.distance)): \(first.instruction)")
+            if self.steps.count > 1 { CloudVoice.shared.prefetch(self.steps[1].instruction) }
         }
     }
 
@@ -48,6 +49,7 @@ final class VoiceGuide: ObservableObject {
     func stop() {
         active = false
         synth.stopSpeaking(at: .immediate)
+        CloudVoice.shared.stop()
     }
 
     func update(userLocation: CLLocation) {
@@ -81,6 +83,7 @@ final class VoiceGuide: ObservableObject {
             announcedApproach = false
             if nextIndex < steps.count {
                 currentInstruction = steps[nextIndex].instruction
+                CloudVoice.shared.prefetch(steps[nextIndex].instruction)
             }
         }
         if dist > 400 {
@@ -164,6 +167,18 @@ final class VoiceGuide: ObservableObject {
     }()
 
     private func speak(_ text: String) {
+        // Real neural voices when the user's Azure key is configured;
+        // the device voice remains the automatic fallback.
+        if CloudVoice.configured {
+            CloudVoice.shared.speak(text) { [weak self] ok in
+                if !ok { DispatchQueue.main.async { self?.speakDevice(text) } }
+            }
+        } else {
+            speakDevice(text)
+        }
+    }
+
+    private func speakDevice(_ text: String) {
         let style = Self.selectedStyle
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.selectedVoice
