@@ -76,6 +76,12 @@ struct ContentView: View {
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
     @State private var searchPins: [Place] = []
+    @State private var cityQuery = ""
+    @State private var cityResults: [GeoService.CityResult] = []
+    @State private var citySearching = false
+    @State private var speedLimitKmh: Int?
+    @State private var lastLimitLoc: CLLocation?
+    @State private var lastOverspeedAt = Date.distantPast
     @State private var localWeather: GeoService.WeatherNow?
     @State private var weatherFetchedAt: Date?
     @State private var weatherForCoord: CLLocationCoordinate2D?
@@ -238,6 +244,7 @@ struct ContentView: View {
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
             checkOffRoute(loc)
+            checkSpeedLimit(loc)
         }
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
@@ -295,16 +302,53 @@ struct ContentView: View {
     @ViewBuilder
     private var statusPills: some View {
         if !voice.active, let loc = locationService.location, loc.speed > 3 {
+            let kmh = Int((loc.speed * 3.6).rounded())
+            let over = speedLimitKmh.map { kmh > $0 + 10 } ?? false
             HStack {
                 Spacer()
-                Text("\(Int((loc.speed * 3.6).rounded())) كم/س")
-                    .font(.caption.weight(.bold))
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .glass(cornerRadius: 14)
+                HStack(spacing: 7) {
+                    Text("\(kmh) \("كم/س".loc)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(over ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                    if let limit = speedLimitKmh {
+                        // Road-sign style limit badge: white disc, red ring.
+                        Text("\(limit)")
+                            .font(.caption2.weight(.black)).foregroundStyle(.black)
+                            .frame(width: 25, height: 25)
+                            .background(Color.white, in: Circle())
+                            .overlay(Circle().stroke(Color.red, lineWidth: 3))
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .glass(cornerRadius: 14)
                 Spacer()
             }
             .transition(.opacity)
         }
+    }
+
+    /// Fetches the posted limit at most once per 150 m of travel, and
+    /// speaks one warning per 45 s when the driver is 10+ km/h over it.
+    private func checkSpeedLimit(_ loc: CLLocation) {
+        guard loc.speed > 5 else { return }
+        if let last = lastLimitLoc, loc.distance(from: last) < 150 { /* still check overspeed below */ }
+        else {
+            lastLimitLoc = loc
+            Task { speedLimitKmh = await GeoService.speedLimit(near: loc.coordinate) }
+        }
+        if let limit = speedLimitKmh, loc.speed * 3.6 > Double(limit) + 10,
+           Date().timeIntervalSince(lastOverspeedAt) > 45 {
+            lastOverspeedAt = Date()
+            voice.announce("انتبه، تجاوزت حد السرعة".loc)
+        }
+    }
+
+    private func searchCities() async {
+        let text = cityQuery.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        citySearching = true
+        cityResults = await GeoService.citySearch(text)
+        citySearching = false
     }
 
     // (intro moved to IntroView below)
@@ -1136,7 +1180,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.41").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.42").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1171,6 +1215,29 @@ struct ContentView: View {
                 }
                 if let error = offlineManager.lastError {
                     Text(error).font(.caption2).foregroundStyle(.red)
+                }
+            }
+            Section("تنزيل مدينة".loc) {
+                HStack {
+                    TextField("اسم المدينة".loc, text: $cityQuery)
+                        .onSubmit { Task { await searchCities() } }
+                    if citySearching { ProgressView() }
+                    Button("بحث".loc) { Task { await searchCities() } }
+                        .disabled(cityQuery.trimmingCharacters(in: .whitespaces).isEmpty || citySearching)
+                }
+                ForEach(cityResults) { city in
+                    Button {
+                        if let url = styleKind.url {
+                            offlineManager.downloadRegion(styleURL: url, sw: city.sw, ne: city.ne, name: city.name)
+                        }
+                    } label: {
+                        HStack {
+                            Text(city.name).lineLimit(1)
+                            Spacer()
+                            Image(systemName: "arrow.down.circle")
+                        }
+                    }
+                    .disabled(offlineManager.downloading || styleKind.url == nil)
                 }
             }
             Section {
