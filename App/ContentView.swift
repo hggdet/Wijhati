@@ -46,8 +46,6 @@ struct ContentView: View {
     @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
     @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.officialLayer") private var officialEnabled = true
-    @AppStorage("wijhati.azureKey") private var azureKey = ""
-    @AppStorage("wijhati.azureRegion") private var azureRegion = "eastus"
     @AppStorage("wijhati.azureVoice") private var azureVoice = "ar-IQ-BasselNeural"
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
@@ -239,7 +237,7 @@ struct ContentView: View {
             syncWidgetPlaces()
             syncStyleToScheme()
             Task {
-                try? await Task.sleep(nanoseconds: 4_800_000_000)
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
             }
             if let loc = locationService.location {
@@ -1149,18 +1147,6 @@ struct ContentView: View {
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
             }
-            Section {
-                TextField("مفتاح MapTiler".loc, text: $maptilerKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Link("الحصول على مفتاح مجاني".loc,
-                     destination: URL(string: "https://cloud.maptiler.com/account/keys/")!)
-                    .font(.footnote)
-            } header: {
-                Text("MapTiler")
-            } footer: {
-                Text("سجّل مجاناً في maptiler.com، انسخ مفتاح API والصقه هنا، ثم اختر MapTiler من «النمط» بالأعلى".loc)
-            }
         }
         .navigationTitle("الخريطة".loc)
         .navigationBarTitleDisplayMode(.inline)
@@ -1267,7 +1253,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.48").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.49").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1413,14 +1399,6 @@ struct ContentView: View {
     private var voicePickerPage: some View {
         Form {
             Section {
-                TextField("مفتاح Azure".loc, text: $azureKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.caption.monospaced())
-                TextField("المنطقة (Region)".loc, text: $azureRegion)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.caption.monospaced())
                 ForEach(CloudVoice.voices, id: \.name) { option in
                     Button {
                         azureVoice = option.name
@@ -1439,7 +1417,7 @@ struct ContentView: View {
             } header: {
                 Text("أصوات عراقية حقيقية (سحابية)".loc)
             } footer: {
-                Text("من بوابة Azure أنشئ مورد Speech بالخطة المجانية F0، ثم انسخ المفتاح والمنطقة (مثل eastus) من صفحة Keys and Endpoint والصقهما هنا. بدون مفتاح يعمل صوت الجهاز بالأسفل.".loc)
+                Text("الأصوات السحابية مدمجة بالتطبيق وتعمل مباشرة — اختر صوتاً واسمعه. قسم صوت الجهاز بالأسفل احتياطي يعمل بدون إنترنت.".loc)
                     .font(.caption2)
             }
             Section("صوت الجهاز".loc) {
