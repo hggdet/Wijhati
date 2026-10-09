@@ -23,7 +23,7 @@ enum MapStyleKind: String, CaseIterable {
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .ofmDark: return Self.patchedStyleFile("dark") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
-        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
+        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
         }
     }
