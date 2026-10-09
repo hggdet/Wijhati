@@ -7,9 +7,7 @@ import SwiftUI
 struct WorldIntroView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var assembled = false
-    @State private var pinIn = false
     @State private var showTitle = false
-    @State private var rings = false
 
     private struct Dot {
         let col: Int
@@ -89,40 +87,6 @@ struct WorldIntroView: View {
         return out
     }
 
-    /// Chunky teardrop pin (sticker style).
-    private struct PinShape: Shape {
-        func path(in rect: CGRect) -> Path {
-            var p = Path()
-            let cx = rect.midX
-            let cy = rect.height * 0.38
-            p.move(to: CGPoint(x: cx, y: rect.maxY))
-            p.addCurve(to: CGPoint(x: rect.minX, y: cy),
-                       controlPoint1: CGPoint(x: rect.width * 0.16, y: rect.height * 0.74),
-                       controlPoint2: CGPoint(x: rect.minX, y: rect.height * 0.56))
-            p.addArc(center: CGPoint(x: cx, y: cy), radius: rect.width / 2,
-                     startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
-            p.addCurve(to: CGPoint(x: cx, y: rect.maxY),
-                       controlPoint1: CGPoint(x: rect.maxX, y: rect.height * 0.56),
-                       controlPoint2: CGPoint(x: rect.width * 0.84, y: rect.height * 0.74))
-            p.closeSubpath()
-            return p
-        }
-    }
-
-    private var pin: some View {
-        ZStack {
-            PinShape().fill(Toon.ink).offset(x: 5, y: 6)
-            PinShape().fill(Toon.coral)
-            PinShape().stroke(Toon.ink, lineWidth: 5)
-            Circle()
-                .fill(.white)
-                .frame(width: 26, height: 26)
-                .overlay(Circle().stroke(Toon.ink, lineWidth: 4))
-                .offset(y: -11)
-        }
-        .frame(width: 74, height: 92)
-    }
-
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -154,49 +118,18 @@ struct WorldIntroView: View {
                         .animation(.spring(response: 0.9, dampingFraction: 0.82).delay(d.delay),
                                    value: assembled)
                 }
-                // Bouncing pin + pulse rings at its base
-                ZStack {
-                    Ellipse()
-                        .stroke(Toon.coral, lineWidth: 3)
-                        .frame(width: 92, height: 26)
-                        .scaleEffect(rings ? 1.5 : 0.4)
-                        .opacity(rings ? 0 : 0.8)
-                        .offset(y: 40)
-                    Ellipse()
-                        .fill(Toon.ink.opacity(0.18))
-                        .frame(width: 64, height: 16)
-                        .offset(y: 40)
-                        .scaleEffect(pinIn ? 1 : 0.3)
-                    pin
-                        .offset(y: pinIn ? 0 : -280)
-                        .rotationEffect(.degrees(pinIn ? 0 : -14))
-                }
-                .position(x: w / 2, y: oy + mapH + 66)
-                // Wordmark
-                VStack(spacing: 7) {
-                    Text("وجهتي")
-                        .font(.system(size: 42, weight: .black, design: .rounded))
-                        .foregroundStyle(dark ? Color.white : Toon.ink)
-                    Capsule()
-                        .fill(Toon.sun)
-                        .frame(width: 96, height: 10)
-                        .overlay(Capsule().stroke(Toon.ink, lineWidth: 2))
-                        .scaleEffect(x: showTitle ? 1 : 0, anchor: .center)
-                }
-                .scaleEffect(showTitle ? 1 : 0.4)
-                .opacity(showTitle ? 1 : 0)
-                .position(x: w / 2, y: oy + mapH + 150)
+                Text("وجهتي")
+                    .font(.system(size: 38, weight: .black, design: .rounded))
+                    .foregroundStyle(dark ? Color.white : Toon.ink)
+                    .position(x: w / 2, y: oy + mapH + 52)
+                    .opacity(showTitle ? 1 : 0)
             }
         }
         .ignoresSafeArea()
         .onAppear {
             assembled = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.52)) { pinIn = true }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.6)) { showTitle = true }
-                withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) { rings = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                withAnimation(.easeIn(duration: 0.5)) { showTitle = true }
             }
         }
     }
