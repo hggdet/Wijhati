@@ -380,6 +380,67 @@ enum GeoService {
         return values
     }
 
+    // MARK: - City search + speed limits
+
+    struct CityResult: Identifiable {
+        var id: String { name }
+        var name: String
+        var swLat: Double, swLon: Double, neLat: Double, neLon: Double
+        var sw: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: swLat, longitude: swLon) }
+        var ne: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: neLat, longitude: neLon) }
+    }
+
+    /// Cities with their Nominatim bounding boxes, for offline downloads.
+    static func citySearch(_ query: String) async -> [CityResult] {
+        var comps = URLComponents(string: "https://nominatim.openstreetmap.org/search")!
+        comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
+                            URLQueryItem(name: "q", value: query),
+                            URLQueryItem(name: "limit", value: "6"),
+                            URLQueryItem(name: "accept-language", value: "ar")]
+        guard let url = comps.url, let rows = await getJSON(url) as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let display = row["display_name"] as? String,
+                  let bb = row["boundingbox"] as? [String], bb.count == 4,
+                  let minLat = Double(bb[0]), let maxLat = Double(bb[1]),
+                  let minLon = Double(bb[2]), let maxLon = Double(bb[3]) else { return nil }
+            let short = display.split(separator: ",").first.map(String.init) ?? display
+            return CityResult(name: short, swLat: minLat, swLon: minLon, neLat: maxLat, neLon: maxLon)
+        }
+    }
+
+    /// Posted speed limit (km/h) of the road nearest to a point, from
+    /// OpenStreetMap's maxspeed tag. Nil when untagged (common in Iraq).
+    static func speedLimit(near: CLLocationCoordinate2D) async -> Int? {
+        let query = """
+        [out:json][timeout:10];
+        way(around:25,\(near.latitude),\(near.longitude))[highway][maxspeed];
+        out tags 5;
+        """
+        let mirrors = ["https://overpass-api.de/api/interpreter",
+                       "https://overpass.kumi.systems/api/interpreter",
+                       "https://overpass.nchc.org.tw/api/interpreter"]
+        for base in mirrors {
+            var request = URLRequest(url: URL(string: base)!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 12
+            request.setValue("Wijhati/1.42 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            request.httpBody = ("data=" + (query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")).data(using: .utf8)
+            guard let root = await sendJSON(request) as? [String: Any],
+                  let els = root["elements"] as? [[String: Any]] else { continue }
+            for el in els {
+                guard let raw = (el["tags"] as? [String: Any])?["maxspeed"] as? String else { continue }
+                let lower = raw.lowercased()
+                var digits = ""
+                for ch in lower { if ch.isNumber { digits.append(ch) } else if !digits.isEmpty { break } }
+                guard let value = Int(digits), value > 0 else { continue }
+                return lower.contains("mph") ? Int(Double(value) * 1.609) : value
+            }
+            return nil
+        }
+        return nil
+    }
+
     // MARK: - Place details (contact, hours, photo)
 
     struct PlaceDetails {
