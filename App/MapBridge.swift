@@ -303,7 +303,7 @@ struct MapBridge: UIViewRepresentable {
                 let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 30, height: 30))
                 UIColor(red: 0.85, green: 0.62, blue: 0.08, alpha: 1).setFill()
                 circle.fill()
-                UIColor.white.setStroke()
+                UIColor.black.setStroke()
                 circle.lineWidth = 2.5
                 circle.stroke()
                 let attrs: [NSAttributedString.Key: Any] = [
@@ -322,7 +322,7 @@ struct MapBridge: UIViewRepresentable {
                 let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 30, height: 30))
                 UIColor.systemPurple.setFill()
                 circle.fill()
-                UIColor.white.setStroke()
+                UIColor.black.setStroke()
                 circle.lineWidth = 2.5
                 circle.stroke()
                 let attrs: [NSAttributedString.Key: Any] = [
@@ -348,8 +348,14 @@ struct MapBridge: UIViewRepresentable {
                 drop.close()
                 UIColor.systemBlue.setFill()
                 drop.fill()
+                UIColor.black.setStroke()
+                drop.lineWidth = 2.5
+                drop.stroke()
                 cg.setFillColor(UIColor.white.cgColor)
                 cg.fillEllipse(in: CGRect(x: 11, y: 9, width: 12, height: 12))
+                cg.setStrokeColor(UIColor.black.cgColor)
+                cg.setLineWidth(2)
+                cg.strokeEllipse(in: CGRect(x: 11, y: 9, width: 12, height: 12))
             }
         }
 
