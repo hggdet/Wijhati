@@ -34,15 +34,28 @@ enum MapStyleKind: String, CaseIterable {
     // bilingual Latin+Arabic rendering.
     private static func patchedStyleFile(_ name: String) -> URL? {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
+        let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
         return FileManager.default.fileExists(atPath: file.path) ? file : nil
+    }
+
+    /// Label rule: prefer the primary `name` when it is written in Arabic
+    /// script — in Iraq it is the most-reviewed value, while the secondary
+    /// `name:ar` field is often degraded or plain wrong (one Baghdad
+    /// ice-cream shop's name:ar literally reads "clinical_pathology").
+    /// Only when `name` has no Arabic letters do we fall back to name:ar.
+    private static func arabicNameExpression() -> [Any] {
+        let name: [Any] = ["to-string", ["coalesce", ["get", "name"], ""]]
+        let probes: [[Any]] = ["ا", "ب", "ت", "ج", "ح", "خ", "د", "ر", "ز", "س", "ش", "ص", "ط", "ع", "ف", "ق", "ك", "ل", "م", "ن", "ه", "و", "ي", "ة"]
+            .map { ["in", $0, name] as [Any] }
+        return ["case", (["any"] as [Any]) + probes, name,
+                ["coalesce", ["get", "name:ar"], name]] as [Any]
     }
 
     static func prepareArabicStyles() {
         for name in ["liberty", "positron", "bright", "dark"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            let file = dir.appendingPathComponent("wijhati-\(name)-ar.json")
+            let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
             if FileManager.default.fileExists(atPath: file.path) { continue }
             URLSession.shared.dataTask(with: remote) { data, _, _ in
                 guard let data,
@@ -51,7 +64,7 @@ enum MapStyleKind: String, CaseIterable {
                 for i in layers.indices {
                     guard var layout = layers[i]["layout"] as? [String: Any],
                           layout["text-field"] != nil else { continue }
-                    layout["text-field"] = ["coalesce", ["get", "name:ar"], ["get", "name"]] as [Any]
+                    layout["text-field"] = arabicNameExpression()
                     layers[i]["layout"] = layout
                 }
                 root["layers"] = layers
