@@ -176,7 +176,7 @@ struct WorldIntroView: View {
                 VStack(spacing: 7) {
                     Text("وجهتي")
                         .font(.system(size: 42, weight: .black, design: .rounded))
-                        .foregroundStyle(dark ? .white : Toon.ink)
+                        .foregroundStyle(dark ? Color.white : Toon.ink)
                     Capsule()
                         .fill(Toon.sun)
                         .frame(width: 96, height: 10)
