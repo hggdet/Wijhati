@@ -29,6 +29,7 @@ struct ContentView: View {
     @StateObject private var historyStore = SearchHistoryStore()
     @StateObject private var voice = VoiceGuide()
     @StateObject private var community = CommunityStore()
+    @StateObject private var official = OfficialStore()
     @State private var showAssistant = false
     @State private var showAR = false
     @State private var homePlace: Place?
@@ -44,6 +45,7 @@ struct ContentView: View {
     @AppStorage("wijhati.voiceID") private var voiceID = ""
     @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
     @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
+    @AppStorage("wijhati.officialLayer") private var officialEnabled = true
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
@@ -75,6 +77,8 @@ struct ContentView: View {
     @State private var show3D = false
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
+    @State private var showDirections = false
+    @State private var directionsText = ""
     @State private var searchPins: [Place] = []
     @State private var cityQuery = ""
     @State private var cityResults: [GeoService.CityResult] = []
@@ -104,6 +108,7 @@ struct ContentView: View {
 
     private var allPins: [Place] {
         pins + community.allPlaces.map { $0.asPlace() }
+            + (officialEnabled ? official.places : [])
     }
     private var schemeOverride: ColorScheme? {
         if appearance == "dark" { return .dark }
@@ -268,6 +273,7 @@ struct ContentView: View {
             MapStyleKind.prepareArabicStyles()
         }
         .sheet(isPresented: $showSaved) { savedSheet }
+        .sheet(isPresented: $showDirections) { directionsSheet }
         .fullScreenCover(isPresented: $showAR) {
             if let target = voice.nextTargetCoordinate ?? selected?.coordinate {
                 ARNavView(locationService: locationService, target: target,
@@ -695,6 +701,15 @@ struct ContentView: View {
                         .padding(.horizontal, 10).padding(.vertical, 7)
                         .background(Color.blue, in: Capsule()).foregroundStyle(.white)
                 }
+                Button {
+                    directionsText = makeDirectionsText()
+                    showDirections = true
+                } label: {
+                    Label("وصف الوصول".loc, systemImage: "text.bubble")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10).padding(.vertical, 7)
+                        .background(Color.white.opacity(0.14), in: Capsule())
+                }
             }
             .font(.caption.weight(.medium))
             if !elevations.isEmpty { ElevationChart(values: elevations).frame(height: 34) }
@@ -714,7 +729,15 @@ struct ContentView: View {
             .padding(.bottom, 1)
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(place.name).font(.headline).lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(place.name).font(.headline).lineLimit(2)
+                        if place.id.hasPrefix("official-") {
+                            Text("رسمي".loc)
+                                .font(.caption2.weight(.black)).foregroundStyle(.black)
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(Color(red: 0.98, green: 0.75, blue: 0.14), in: Capsule())
+                        }
+                    }
                     if !place.address.isEmpty {
                         Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
@@ -749,7 +772,7 @@ struct ContentView: View {
                         .padding(.horizontal, 10).padding(.vertical, 8)
                         .background(Color.white.opacity(0.14), in: Capsule())
                 }
-                if !place.id.hasPrefix("community-") {
+                if !place.id.hasPrefix("community-"), !place.id.hasPrefix("official-") {
                     Button { publishPlace = place } label: {
                         Label("نشر محلي".loc, systemImage: "mappin.and.ellipse")
                             .font(.caption.weight(.medium))
@@ -871,6 +894,47 @@ struct ContentView: View {
             placeWeather = await GeoService.weather(lat: place.latitude, lon: place.longitude)
             placeDetails = await GeoService.details(for: place)
         }
+    }
+
+    /// Human, landmark-based arrival description for the current route —
+    /// the way Iraqis actually give directions ("بجانب الجامع…"). The text
+    /// can be shared to anyone, even without the app.
+    private func makeDirectionsText() -> String {
+        guard let route = selectedRoute, let dest = selected else { return "" }
+        var lines = ["\("الطريق إلى".loc) \(dest.name):"]
+        var n = 0
+        for step in route.steps where step.distance > 15 {
+            n += 1
+            lines.append("\(n). \(step.instruction) (\(fmtDist(step.distance)))")
+        }
+        lines.append("\("المسافة الكلية".loc): \(fmtDist(route.distance)) • \("الوقت التقريبي".loc): \(formatDuration(route.duration))")
+        lines.append("— \("وجهتي".loc)")
+        return lines.joined(separator: "\n")
+    }
+
+    private var directionsSheet: some View {
+        NavigationStack {
+            ScrollView {
+                Text(directionsText)
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .textSelection(.enabled)
+            }
+            .navigationTitle("وصف الوصول".loc)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: directionsText) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("إغلاق".loc) { showDirections = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Pocket overlay
@@ -1047,6 +1111,7 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
+                Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
                 VStack(spacing: 8) {
                     HStack {
                         Text("شريط التحكم بالزجاج".loc)
@@ -1180,7 +1245,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.42").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.43").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
