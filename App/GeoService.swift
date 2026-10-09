@@ -380,6 +380,159 @@ enum GeoService {
         return values
     }
 
+    // MARK: - Place details (contact, hours, photo)
+
+    struct PlaceDetails {
+        var phone: String?
+        var website: String?
+        var openingHours: String?
+        var isOpenNow: Bool?
+        var photoURL: URL?
+    }
+
+    /// Enriches a place card from the place's own OpenStreetMap record
+    /// (Nominatim extratags) plus a matching Wikipedia photo.
+    static func details(for place: Place) async -> PlaceDetails {
+        var out = PlaceDetails(phone: place.phone, website: place.website)
+        var comps = URLComponents(string: "https://nominatim.openstreetmap.org/reverse")!
+        comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
+                            URLQueryItem(name: "lat", value: "\(place.latitude)"),
+                            URLQueryItem(name: "lon", value: "\(place.longitude)"),
+                            URLQueryItem(name: "accept-language", value: "ar"),
+                            URLQueryItem(name: "extratags", value: "1"),
+                            URLQueryItem(name: "zoom", value: "18")]
+        var wikiTag: String?
+        if let url = comps.url, let root = await getJSON(url) as? [String: Any],
+           let tags = root["extratags"] as? [String: Any] {
+            func tag(_ keys: [String]) -> String? {
+                for k in keys { if let v = tags[k] as? String, !v.isEmpty { return v } }
+                return nil
+            }
+            out.phone = out.phone ?? tag(["phone", "contact:phone", "contact:mobile"])
+            out.website = out.website ?? tag(["website", "contact:website", "url"])
+            out.openingHours = tag(["opening_hours"])
+            wikiTag = tag(["wikipedia"])
+        }
+        if let hours = out.openingHours { out.isOpenNow = openNow(hours: hours, at: Date()) }
+        out.photoURL = await wikipediaPhoto(place: place, tag: wikiTag)
+        return out
+    }
+
+    private static func wikipediaPhoto(place: Place, tag: String?) async -> URL? {
+        // 1) The place's own wikipedia tag, e.g. "ar:..." / "en:...".
+        if let tag, let colon = tag.firstIndex(of: ":") {
+            let lang = String(tag[tag.startIndex..<colon])
+            let title = String(tag[tag.index(after: colon)...]).replacingOccurrences(of: " ", with: "_")
+            if ["ar", "en"].contains(lang),
+               let enc = title.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+               let url = URL(string: "https://\(lang).wikipedia.org/api/rest_v1/page/summary/\(enc)"),
+               let root = await getJSON(url) as? [String: Any] {
+                if let src = (root["originalimage"] as? [String: Any])?["source"] as? String { return URL(string: src) }
+                if let src = (root["thumbnail"] as? [String: Any])?["source"] as? String { return URL(string: src) }
+            }
+        }
+        // 2) Nearest Wikipedia article whose title shares a word with the name.
+        let placeTokens = Set(normalizeArabic(place.name.lowercased()).split(separator: " ").map(String.init).filter { $0.count > 2 })
+        guard !placeTokens.isEmpty else { return nil }
+        for lang in ["ar", "en"] {
+            var comps = URLComponents(string: "https://\(lang).wikipedia.org/w/api.php")!
+            comps.queryItems = [URLQueryItem(name: "action", value: "query"),
+                                URLQueryItem(name: "format", value: "json"),
+                                URLQueryItem(name: "generator", value: "geosearch"),
+                                URLQueryItem(name: "ggscoord", value: "\(place.latitude)|\(place.longitude)"),
+                                URLQueryItem(name: "ggsradius", value: "300"),
+                                URLQueryItem(name: "ggslimit", value: "10"),
+                                URLQueryItem(name: "prop", value: "pageimages"),
+                                URLQueryItem(name: "piprop", value: "original")]
+            guard let url = comps.url, let root = await getJSON(url) as? [String: Any],
+                  let pages = (root["query"] as? [String: Any])?["pages"] as? [String: Any] else { continue }
+            for page in pages.values {
+                guard let p = page as? [String: Any], let title = p["title"] as? String,
+                      let src = (p["original"] as? [String: Any])?["source"] as? String else { continue }
+                let titleTokens = Set(normalizeArabic(title.lowercased()).split(separator: " ").map(String.init))
+                if !placeTokens.isDisjoint(with: titleTokens) { return URL(string: src) }
+            }
+        }
+        return nil
+    }
+
+    /// Best-effort evaluator for common opening_hours shapes ("24/7",
+    /// "Mo-Fr 08:00-17:00", "Sa-Th 09:00-23:00; Fr off"). Nil = too exotic.
+    static func openNow(hours: String, at date: Date) -> Bool? {
+        let text = hours.trimmingCharacters(in: .whitespaces)
+        if text == "24/7" { return true }
+        let order = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+        let calNum = ["Mo": 2, "Tu": 3, "We": 4, "Th": 5, "Fr": 6, "Sa": 7, "Su": 1]
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = .current
+        let weekday = cal.component(.weekday, from: date)
+        let nowMin = cal.component(.hour, from: date) * 60 + cal.component(.minute, from: date)
+        func expandDays(_ spec: String) -> Set<Int>? {
+            var days = Set<Int>()
+            for part in spec.split(separator: ",") {
+                let p = String(part)
+                if p.contains("-") {
+                    let ab = p.split(separator: "-").map(String.init)
+                    guard ab.count == 2, let i1 = order.firstIndex(of: ab[0]), let i2 = order.firstIndex(of: ab[1]) else { return nil }
+                    var i = i1
+                    while true { days.insert(calNum[order[i]]!); if i == i2 { break }; i = (i + 1) % 7 }
+                } else {
+                    guard let n = calNum[p] else { return nil }
+                    days.insert(n)
+                }
+            }
+            return days
+        }
+        func minutes(_ t: String) -> Int? {
+            let ab = t.split(separator: ":")
+            guard ab.count == 2, let h = Int(ab[0]), let m = Int(ab[1]), h <= 24, m < 60 else { return nil }
+            return h * 60 + m
+        }
+        var sawRule = false
+        var sawToday = false
+        for rawRule in text.split(separator: ";") {
+            let words = rawRule.split(separator: " ").map(String.init)
+            guard !words.isEmpty else { continue }
+            var daySpec: String? = nil
+            var ranges: [(Int, Int)] = []
+            var off = false
+            var ok = true
+            for w in words {
+                if w == "off" { off = true; continue }
+                if w.contains(":") {
+                    let ab = w.split(separator: "-")
+                    guard ab.count == 2, let a = minutes(String(ab[0])), let b = minutes(String(ab[1])) else { ok = false; break }
+                    ranges.append((a, b))
+                    continue
+                }
+                // A word of day codes / ranges / comma lists.
+                let cleaned = w.trimmingCharacters(in: CharacterSet(charactersIn: ","))
+                if cleaned.allSatisfy({ $0.isLetter || $0 == "-" || $0 == "," }) && expandDays(w) != nil {
+                    daySpec = w
+                    continue
+                }
+                ok = false; break
+            }
+            guard ok else { continue }
+            sawRule = true
+            let days = daySpec.flatMap { expandDays($0) } ?? Set(1...7)
+            // Overnight spill from yesterday.
+            let yesterday = weekday == 1 ? 7 : weekday - 1
+            if days.contains(yesterday) {
+                for (a, b) in ranges where b < a && nowMin < b { return true }
+            }
+            guard days.contains(weekday) else { continue }
+            sawToday = true
+            if off { continue }
+            if ranges.isEmpty { return true } // day named with no times = open all day
+            for (a, b) in ranges {
+                if b > a { if nowMin >= a && nowMin < b { return true } }
+                else if nowMin >= a { return true }
+            }
+        }
+        if sawToday { return false }
+        return sawRule ? false : nil
+    }
+
     // MARK: - HTTP helpers
     static func getJSON(_ url: URL) async -> Any? {
         // A real User-Agent + a sane timeout: Nominatim/Photon ask for an
