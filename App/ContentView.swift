@@ -40,7 +40,6 @@ struct ContentView: View {
 
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
     @AppStorage("wijhati.appearance") private var appearance = "auto"
-    @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
     @AppStorage("wijhati.notifMaster") private var notifMaster = true
     @AppStorage("wijhati.language") private var language = "ar"
     @AppStorage("wijhati.voiceID") private var voiceID = ""
@@ -130,7 +129,7 @@ struct ContentView: View {
         if effectiveDark {
             if styleKind != .dark, styleKind != .ofmDark {
                 lastLightStyle = styleKind.rawValue
-                styleKind = .dark
+                styleKind = .ofmDark
                 autoDark = true
             }
         } else if autoDark {
@@ -260,6 +259,12 @@ struct ContentView: View {
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
         .onAppear { applySemanticDirection() }
         .onChange(of: language) { _, _ in applySemanticDirection() }
+        .onAppear {
+            if !UserDefaults.standard.bool(forKey: "wijhati.toonV1") {
+                UserDefaults.standard.set(true, forKey: "wijhati.toonV1")
+                styleKind = .cartoon
+            }
+        }
         .onChange(of: showSearch) { _, open in if !open { voiceSearch.stop() } }
         .onChange(of: appearance) { _, _ in syncStyleToScheme() }
         .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
@@ -479,10 +484,7 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 46)
-                .background(Color(UIColor.systemBackground).opacity(0.38), in: RoundedRectangle(cornerRadius: 23))
                 .glass(cornerRadius: 23)
-                .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color.white.opacity(0.28), lineWidth: 1))
-                .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
                 if query.trimmingCharacters(in: .whitespaces).isEmpty {
                     VStack(spacing: 8) {
                         if !historyStore.items.isEmpty { historyList }
@@ -509,7 +511,7 @@ struct ContentView: View {
             if !stops.isEmpty { stopsBar }
             if let routeNotice, selectedRoute == nil {
                 Text(routeNotice)
-                    .font(.caption.weight(.medium)).foregroundStyle(.orange)
+                    .font(.caption.weight(.bold)).foregroundStyle(Toon.ink)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .glass(cornerRadius: 14)
             }
@@ -643,7 +645,6 @@ struct ContentView: View {
         }
         .frame(maxHeight: 340)
         .glass(cornerRadius: 22)
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -753,8 +754,9 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
-            .background(primary ? AnyShapeStyle(Color.blue) : AnyShapeStyle(tint ?? Color.white.opacity(0.12)),
+            .background(primary ? AnyShapeStyle(Toon.sky) : AnyShapeStyle(tint ?? Toon.tile),
                         in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Toon.ink, lineWidth: 1.5))
             .foregroundStyle(primary ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         }
         .buttonStyle(.plain)
@@ -769,7 +771,7 @@ struct ContentView: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(place.name).font(.title3.weight(.bold)).lineLimit(2)
+                        Text(place.name).font(.system(.title3, design: .rounded).weight(.black)).lineLimit(2)
                         if place.id.hasPrefix("official-") {
                             Text("رسمي".loc)
                                 .font(.caption2.weight(.black)).foregroundStyle(.black)
@@ -778,9 +780,9 @@ struct ContentView: View {
                         }
                         if let kind = place.kind {
                             Text(kind)
-                                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                                .font(.caption2.weight(.bold)).foregroundStyle(Toon.ink)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(Color.white.opacity(0.12), in: Capsule())
+                                .background(Toon.sun, in: Capsule())
                         }
                     }
                     if !place.address.isEmpty {
@@ -1128,7 +1130,7 @@ struct ContentView: View {
         Form {
             Section {
                 Picker("النمط".loc, selection: $styleKind) {
-                    ForEach(MapStyleKind.allCases.filter { $0 != .cartoon }, id: \.self) { kind in
+                    ForEach([MapStyleKind.cartoon, .maptiler, .standard, .satellite, .ofmDark], id: \.self) { kind in
                         Text(kind.label).tag(kind)
                     }
                 }
@@ -1146,20 +1148,6 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("شريط التحكم بالزجاج".loc)
-                        Spacer()
-                        Text("\(Int(glassLevel * 100))٪")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 8) {
-                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                        Slider(value: $glassLevel, in: 0...1)
-                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
             }
             Section {
                 TextField("مفتاح MapTiler".loc, text: $maptilerKey)
@@ -1279,7 +1267,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.47").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.48").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
