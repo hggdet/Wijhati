@@ -9,15 +9,16 @@ struct Place: Codable, Identifiable, Equatable {
     var longitude: Double
     var phone: String?
     var website: String?
+    var kind: String?
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
     static func make(name: String, address: String, lat: Double, lon: Double,
-                     phone: String? = nil, website: String? = nil) -> Place {
+                     phone: String? = nil, website: String? = nil, kind: String? = nil) -> Place {
         Place(id: "\(lat),\(lon)-\(name)", name: name, address: address,
-              latitude: lat, longitude: lon, phone: phone, website: website)
+              latitude: lat, longitude: lon, phone: phone, website: website, kind: kind)
     }
 
     var mapsLink: URL {
