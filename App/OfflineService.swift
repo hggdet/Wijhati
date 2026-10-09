@@ -68,16 +68,28 @@ final class OfflineManager: ObservableObject {
     }
 
     func download(styleURL: URL, center: CLLocationCoordinate2D, name: String) {
-        guard !downloading else { return }
-        lastError = nil
         let half = 0.14 // ≈ 15 km each direction
         let bounds = MLNCoordinateBounds(
             sw: CLLocationCoordinate2D(latitude: center.latitude - half, longitude: center.longitude - half),
             ne: CLLocationCoordinate2D(latitude: center.latitude + half, longitude: center.longitude + half))
+        addPack(styleURL: styleURL, bounds: bounds, fromZoom: 10, toZoom: 15, name: name)
+    }
+
+    /// Whole-city download (Nominatim bounding box). Capped at zoom 14:
+    /// a full city at zoom 15 would be several GB.
+    func downloadRegion(styleURL: URL, sw: CLLocationCoordinate2D, ne: CLLocationCoordinate2D, name: String) {
+        addPack(styleURL: styleURL, bounds: MLNCoordinateBounds(sw: sw, ne: ne),
+                fromZoom: 10, toZoom: 14, name: name)
+    }
+
+    private func addPack(styleURL: URL, bounds: MLNCoordinateBounds,
+                         fromZoom: Double, toZoom: Double, name: String) {
+        guard !downloading else { return }
+        lastError = nil
         // Use the map's own current style URL, exactly like MapLibre's
         // documented offline example.
         let region = MLNTilePyramidOfflineRegion(styleURL: styleURL, bounds: bounds,
-                                                  fromZoomLevel: 10, toZoomLevel: 15)
+                                                  fromZoomLevel: fromZoom, toZoomLevel: toZoom)
         let context = name.data(using: .utf8) ?? Data()
         MLNOfflineStorage.shared.addPack(for: region, withContext: context) { [weak self] pack, error in
             DispatchQueue.main.async {
