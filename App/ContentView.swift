@@ -30,6 +30,7 @@ struct ContentView: View {
     @StateObject private var voice = VoiceGuide()
     @StateObject private var community = CommunityStore()
     @StateObject private var official = OfficialStore()
+    @StateObject private var voiceSearch = VoiceSearch()
     @State private var showAssistant = false
     @State private var showAR = false
     @State private var homePlace: Place?
@@ -256,6 +257,7 @@ struct ContentView: View {
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
         .onAppear { applySemanticDirection() }
         .onChange(of: language) { _, _ in applySemanticDirection() }
+        .onChange(of: showSearch) { _, open in if !open { voiceSearch.stop() } }
         .onChange(of: appearance) { _, _ in syncStyleToScheme() }
         .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
         .onChange(of: styleKind) { _, newKind in
@@ -440,11 +442,15 @@ struct ContentView: View {
                         .onChange(of: query) { _, newValue in
                             suggestTask?.cancel()
                             suggestTask = Task {
-                                try? await Task.sleep(nanoseconds: 120_000_000)
+                                try? await Task.sleep(nanoseconds: 90_000_000)
                                 guard !Task.isCancelled, query == newValue else { return }
                                 if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
+                                    // Local results (saved / official / history)
+                                    // appear instantly; remote merges in after.
                                     let local = localMatches(for: newValue)
+                                    if !local.isEmpty { suggestions = local }
                                     let remote = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
+                                    guard !Task.isCancelled, query == newValue else { return }
                                     suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
                                 } else {
                                     suggestions = []
@@ -457,12 +463,23 @@ struct ContentView: View {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
                     }
+                    Button {
+                        voiceSearch.toggle { text in
+                            DispatchQueue.main.async { query = text }
+                        }
+                    } label: {
+                        Image(systemName: voiceSearch.isListening ? "mic.fill" : "mic")
+                            .foregroundStyle(voiceSearch.isListening ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    }
                     Button("تم".loc) { showSearch = false; overlayFocused = false }
                         .font(.subheadline.weight(.bold))
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 46)
+                .background(Color(UIColor.systemBackground).opacity(0.38), in: RoundedRectangle(cornerRadius: 23))
                 .glass(cornerRadius: 23)
+                .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color.white.opacity(0.28), lineWidth: 1))
+                .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
                 if query.trimmingCharacters(in: .whitespaces).isEmpty {
                     VStack(spacing: 8) {
                         if !historyStore.items.isEmpty { historyList }
@@ -473,7 +490,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.top, 54)
+            .padding(.top, 108)
         }
         .zIndex(6)
         .onAppear { DispatchQueue.main.async { overlayFocused = true } }
@@ -603,8 +620,9 @@ struct ContentView: View {
                             Image(systemName: "mappin.circle.fill").foregroundStyle(adaptiveInk).font(.system(size: 19))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
-                                if !place.address.isEmpty {
-                                    Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                let sub = [place.kind, place.address.isEmpty ? nil : place.address].compactMap { $0 }.joined(separator: " • ")
+                                if !sub.isEmpty {
+                                    Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                             Spacer()
@@ -622,6 +640,7 @@ struct ContentView: View {
         }
         .frame(maxHeight: 340)
         .glass(cornerRadius: 22)
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -720,86 +739,98 @@ struct ContentView: View {
 
     // MARK: - Place card
 
+    /// One uniform action tile for the place card: icon over label,
+    /// equal width and geometry for every action (formal, Apple-like).
+    private func cardAction(icon: String, label: String, primary: Bool = false,
+                            tint: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 17, weight: .semibold))
+                Text(label).font(.caption2.weight(.semibold)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(primary ? AnyShapeStyle(Color.blue) : AnyShapeStyle(tint ?? Color.white.opacity(0.12)),
+                        in: RoundedRectangle(cornerRadius: 13))
+            .foregroundStyle(primary ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func placeCard(_ place: Place) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             // Apple Maps-style grabber: drag the card up for full details.
             HStack { Spacer()
-                Capsule().fill(Color.secondary.opacity(0.45)).frame(width: 38, height: 5)
+                Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 36, height: 5)
                 Spacer() }
-            .padding(.bottom, 1)
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(place.name).font(.headline).lineLimit(2)
+                        Text(place.name).font(.title3.weight(.bold)).lineLimit(2)
                         if place.id.hasPrefix("official-") {
                             Text("رسمي".loc)
                                 .font(.caption2.weight(.black)).foregroundStyle(.black)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
                                 .background(Color(red: 0.98, green: 0.75, blue: 0.14), in: Capsule())
                         }
+                        if let kind = place.kind {
+                            Text(kind)
+                                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(Color.white.opacity(0.12), in: Capsule())
+                        }
                     }
                     if !place.address.isEmpty {
                         Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
-                    if let loc = locationService.location {
-                        let d = loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
-                        Text("يبعد \(fmtDist(d)) عنك").font(.caption2).foregroundStyle(.secondary)
+                    HStack(spacing: 5) {
+                        if let loc = locationService.location {
+                            let d = loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
+                            Text("يبعد \(fmtDist(d)) عنك")
+                        }
+                        if let w = placeWeather {
+                            Text("• \(displayTemp(w.temperature)) \(w.label)")
+                        }
                     }
-                    if let w = placeWeather {
-                        Text("🌡 \(displayTemp(w.temperature)) \(w.label) • شروق \(w.sunrise) • غروب \(w.sunset)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
+                    .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { self.selected = nil } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    Image(systemName: "xmark").font(.caption.weight(.bold))
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.12), in: Circle())
+                        .foregroundStyle(.secondary)
                 }
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                Button { Task { await computeRoute() } } label: {
-                    Label(loadingRoute ? "…" : "الاتجاهات".loc, systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 11).padding(.vertical, 8)
-                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
+            HStack(spacing: 7) {
+                cardAction(icon: "arrow.triangle.turn.up.right.diamond.fill",
+                           label: loadingRoute ? "…" : "الاتجاهات".loc, primary: true) {
+                    Task { await computeRoute() }
                 }
-                Button {
+                cardAction(icon: store.contains(place) ? "bookmark.fill" : "bookmark",
+                           label: store.contains(place) ? "محفوظ".loc : "حفظ".loc) {
                     let added = store.toggle(place)
                     if added { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-                } label: {
-                    Label(store.contains(place) ? "محفوظ".loc : "حفظ الموقع".loc, systemImage: store.contains(place) ? "bookmark.fill" : "bookmark")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(Color.white.opacity(0.14), in: Capsule())
                 }
                 if !place.id.hasPrefix("community-"), !place.id.hasPrefix("official-") {
-                    Button { publishPlace = place } label: {
-                        Label("نشر محلي".loc, systemImage: "mappin.and.ellipse")
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 10).padding(.vertical, 8)
-                            .background(Color.purple.opacity(0.18), in: Capsule())
+                    cardAction(icon: "mappin.and.ellipse", label: "نشر محلي".loc,
+                               tint: Color.purple.opacity(0.25)) {
+                        publishPlace = place
                     }
                 }
-                Button { stops.append(place) } label: {
-                    Label("توقف".loc, systemImage: "flag")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(Color.white.opacity(0.14), in: Capsule())
+                cardAction(icon: "flag", label: "توقف".loc) { stops.append(place) }
+                cardAction(icon: "square.and.arrow.up", label: "مشاركة".loc) {
+                    shareItem = SharePayload(text: "\(place.name)\n\(place.mapsLink.absoluteString)")
                 }
-                if let phone = place.phone, let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
-                    Link(destination: url) {
-                        Image(systemName: "phone.fill")
-                            .padding(8).background(Color.white.opacity(0.14), in: Circle())
-                    }
+            }
+            if let phone = place.phone, let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
+                Link(destination: url) {
+                    Label(phone, systemImage: "phone.fill")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.2), in: RoundedRectangle(cornerRadius: 11))
                 }
-                Button { shareItem = SharePayload(text: "\(place.name)\n\(place.mapsLink.absoluteString)") } label: {
-                    Label("مشاركة".loc, systemImage: "square.and.arrow.up")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(Color.white.opacity(0.14), in: Capsule())
-                }
-                }
-                .fixedSize(horizontal: true, vertical: false)
             }
             if placeSheetFull {
                 Divider().opacity(0.4)
@@ -1245,7 +1276,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.43").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.44").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
@@ -1744,8 +1775,10 @@ extension ContentView {
     func localMatches(for query: String) -> [Place] {
         let q = GeoService.normalizeArabic(query)
         guard q.count >= 2 else { return [] }
-        let candidates = store.places.map { $0.place } + community.allPlaces.map { $0.asPlace() }
-        return Array(candidates.filter { GeoService.normalizeArabic($0.name).contains(q) }.prefix(3))
+        let candidates = store.places.map { $0.place } + community.allPlaces.map { $0.asPlace() } + historyStore.items
+        var out = candidates.filter { GeoService.normalizeArabic($0.name).contains(q) }
+        out += official.matches(q).filter { o in !out.contains { $0.id == o.id } }
+        return Array(out.prefix(4))
     }
     @ViewBuilder
     func quickPlaceRow(title: String, icon: String, place: Place?, key: String, isHome: Bool) -> some View {
