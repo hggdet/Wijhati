@@ -32,8 +32,19 @@ enum MapStyleKind: String, CaseIterable {
     /// The user's free MapTiler API key (Settings ← Map). Empty = the
     /// MapTiler style has no URL and the map falls back to standard.
     static var maptilerKey: String {
-        (UserDefaults.standard.string(forKey: "wijhati.maptilerKey") ?? "")
+        let entered = (UserDefaults.standard.string(forKey: "wijhati.maptilerKey") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        return entered.isEmpty ? embeddedMaptilerKey : entered
+    }
+
+    // Built-in default key (lightly masked), so the MapTiler style
+    // works out of the box; a key entered in Settings overrides it.
+    private static let maskedMaptilerKey = "X/39LNA8ceFS148tpjx6znek8zM="
+    private static var embeddedMaptilerKey: String {
+        guard let data = Data(base64Encoded: maskedMaptilerKey), !data.isEmpty else { return "" }
+        let mask: [UInt8] = [0x3A, 0x91, 0xC4, 0x5D, 0xE2, 0x77, 0x08, 0xB6]
+        let bytes = data.enumerated().map { $0.element ^ mask[$0.offset % mask.count] }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
     }
     private static var maptilerRemoteURL: URL? {
         let key = maptilerKey
