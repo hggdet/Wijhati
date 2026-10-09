@@ -1,38 +1,33 @@
 import SwiftUI
 
-/// Liquid Glass surface with a graceful fallback for older systems.
+/// The TOON design system (1.48): the whole app wears a bold cartoon
+/// identity — paper-white surfaces, thick ink borders and hard offset
+/// shadows. Surfaces are always "paper", so their content is pinned
+/// to the light scheme (dark text) whatever the device appearance is.
+enum Toon {
+    static let ink = Color(red: 0.08, green: 0.08, blue: 0.10)
+    static let paper = Color.white
+    static let coral = Color(red: 0.996, green: 0.286, blue: 0.212)
+    static let sun = Color(red: 1.0, green: 0.788, blue: 0.235)
+    static let sky = Color(red: 0.243, green: 0.608, blue: 1.0)
+    static let mint = Color(red: 0.243, green: 0.835, blue: 0.596)
+    static let grape = Color(red: 0.545, green: 0.361, blue: 0.965)
+    static let tile = Color(red: 0.93, green: 0.93, blue: 0.96)
+}
+
 struct GlassModifier: ViewModifier {
     var cornerRadius: CGFloat = 24
-    @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
-    @Environment(\.colorScheme) private var scheme
 
     func body(content: Content) -> some View {
-        if glassLevel < 0.03 {
-            content
-                .background(scheme == .dark ? Color(red: 0.11, green: 0.11, blue: 0.12) : Color.white,
-                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.black.opacity(0.07), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-        } else if #available(iOS 26.0, *) {
-            content
-                .glassEffect(.regular.tint(.white.opacity(1 - glassLevel * 0.85)).interactive(),
-                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            content
-                .background(.ultraThinMaterial,
-                            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(.white.opacity((1 - glassLevel) * 0.64))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.white.opacity(0.4), lineWidth: 1)
-                )
-        }
+        content
+            .background(Toon.paper,
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Toon.ink, lineWidth: 2)
+            )
+            .shadow(color: .black, radius: 0, x: 0, y: 4)
+            .environment(\.colorScheme, .light)
     }
 }
 
