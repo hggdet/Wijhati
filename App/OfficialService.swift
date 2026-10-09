@@ -8,7 +8,16 @@ import CoreLocation
 /// updating those files — no app update needed. Cached locally after the
 /// first fetch so the layer also works offline.
 final class OfficialStore: ObservableObject {
-    @Published var places: [Place] = []
+    @Published var places: [Place] = [] {
+        didSet { normalizedIndex = places.map { ($0, GeoService.normalizeArabic($0.name)) } }
+    }
+    private var normalizedIndex: [(place: Place, name: String)] = []
+
+    /// Instant local matches over the whole official dataset (already
+    /// in memory, so search works offline too).
+    func matches(_ normalizedQuery: String) -> [Place] {
+        normalizedIndex.filter { $0.name.contains(normalizedQuery) }.map { $0.place }
+    }
 
     private let cacheKey = "wijhati.officialPlaces.v2"
     private let remoteURLs = [
