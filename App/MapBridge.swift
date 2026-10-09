@@ -274,10 +274,34 @@ struct MapBridge: UIViewRepresentable {
                 abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
                 abs($0.longitude - annotation.coordinate.longitude) < 0.00005
             }
-            let id = isCommunity ? "wijhati-community-pin" : "wijhati-pin"
+            let isOfficial = parent.pins.contains {
+                $0.id.hasPrefix("official-") &&
+                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
+                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
+            }
+            let id = isCommunity ? "wijhati-community-pin" : (isOfficial ? "wijhati-official-pin" : "wijhati-pin")
             if let existing = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return existing }
-            let img = isCommunity ? Self.communityPinImage() : Self.pinImage()
+            let img = isCommunity ? Self.communityPinImage() : (isOfficial ? Self.officialPinImage() : Self.pinImage())
             return MLNAnnotationImage(image: img, reuseIdentifier: id)
+        }
+
+        static func officialPinImage() -> UIImage {
+            let size = CGSize(width: 34, height: 34)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            return renderer.image { _ in
+                let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 30, height: 30))
+                UIColor(red: 0.85, green: 0.62, blue: 0.08, alpha: 1).setFill()
+                circle.fill()
+                UIColor.white.setStroke()
+                circle.lineWidth = 2.5
+                circle.stroke()
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 15)
+                ]
+                let text = "🏛" as NSString
+                let ts = text.size(withAttributes: attrs)
+                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
+            }
         }
 
         static func communityPinImage() -> UIImage {
