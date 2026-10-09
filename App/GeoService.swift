@@ -3,14 +3,47 @@ import CoreLocation
 
 enum GeoService {
 
-    // MARK: - Photon search (OpenStreetMap)
+    // MARK: - Search (Photon + Nominatim, relevance-ranked)
+
+    private static var resultCache: [String: [Place]] = [:]
+    private static let resultCacheLock = NSLock()
+
     static func search(_ query: String, near: CLLocationCoordinate2D?, limit: Int = 8) async -> [Place] {
-        // Colloquial-friendly: try the raw query, then normalized/dialect variants.
-        for variant in searchVariants(query) {
-            let found = await photonSearch(variant, near: near, limit: limit)
-            if !found.isEmpty { return found }
+        let cacheKey = normalizeArabic(query) + "|" + (near.map { "\(Int($0.latitude * 50)),\(Int($0.longitude * 50))" } ?? "-")
+        resultCacheLock.lock()
+        let hit = resultCache[cacheKey]
+        resultCacheLock.unlock()
+        if let hit { return hit }
+
+        // Pool every dialect variant IN PARALLEL instead of returning
+        // the first non-empty one — a weak early match used to hide
+        // better results, and sequential calls made suggestions crawl.
+        let variants = Array(searchVariants(query).prefix(3))
+        var pool: [Place] = []
+        await withTaskGroup(of: [Place].self) { group in
+            for variant in variants {
+                group.addTask { await photonSearch(variant, near: near, limit: limit) }
+            }
+            for await part in group { pool += part }
         }
-        return []
+        // Second engine: Nominatim's structured index covers Iraqi
+        // places Photon misses, and its results carry full addresses.
+        if pool.count < 5 {
+            pool += await nominatimSearch(query, limit: limit)
+        }
+        var seen = Set<String>()
+        var unique: [Place] = []
+        for p in pool {
+            let k = normalizeArabic(p.name) + "|\(Int((p.latitude * 2000).rounded()))|\(Int((p.longitude * 2000).rounded()))"
+            if seen.insert(k).inserted { unique.append(p) }
+        }
+        let ranked = unique.sorted { relevance($0, query: query, near: near) > relevance($1, query: query, near: near) }
+        let out = Array(ranked.prefix(limit))
+        resultCacheLock.lock()
+        resultCache[cacheKey] = out
+        if resultCache.count > 60 { resultCache.removeAll() }
+        resultCacheLock.unlock()
+        return out
     }
 
     static func normalizeArabic(_ text: String) -> String {
@@ -36,6 +69,51 @@ enum GeoService {
         return Array(NSOrderedSet(array: out)) as? [String] ?? out
     }
 
+    /// Text match first (exact > prefix > contains > token overlap),
+    /// a bonus when the query IS the place kind ("صيدلية"), then a
+    /// gentle log-distance penalty — relevance beats raw nearness.
+    static func relevance(_ place: Place, query: String, near: CLLocationCoordinate2D?) -> Double {
+        let q = normalizeArabic(query)
+        let n = normalizeArabic(place.name)
+        var score = 0.0
+        if n == q { score += 100 }
+        else if n.hasPrefix(q) { score += 65 }
+        else if n.contains(q) { score += 45 }
+        else if !q.isEmpty {
+            let qt = Set(q.split(separator: " ").map(String.init))
+            let nt = Set(n.split(separator: " ").map(String.init))
+            if !qt.isEmpty { score += 35 * Double(qt.intersection(nt).count) / Double(qt.count) }
+        }
+        if let kind = place.kind, normalizeArabic(kind) == q { score += 30 }
+        if let near {
+            let d = CLLocation(latitude: near.latitude, longitude: near.longitude)
+                .distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
+            score -= min(36, 9 * log10(max(d, 10) / 10))
+        }
+        return score
+    }
+
+    static func kindWord(osmValue: String?, type: String?) -> String? {
+        let map: [String: String] = [
+            "restaurant": "مطعم", "cafe": "مقهى", "fast_food": "وجبات سريعة", "pharmacy": "صيدلية",
+            "hospital": "مستشفى", "clinic": "عيادة", "doctors": "عيادة", "dentist": "عيادة أسنان",
+            "school": "مدرسة", "university": "جامعة", "college": "كلية", "kindergarten": "روضة",
+            "hotel": "فندق", "motel": "فندق", "hostel": "سكن", "fuel": "محطة وقود",
+            "bank": "مصرف", "atm": "صراف آلي", "marketplace": "سوق", "supermarket": "سوبرماركت",
+            "bakery": "مخبز", "butcher": "قصاب", "mosque": "مسجد", "church": "كنيسة",
+            "park": "متنزه", "parking": "موقف سيارات", "police": "مركز شرطة", "post_office": "بريد",
+            "library": "مكتبة", "museum": "متحف", "stadium": "ملعب", "sports_centre": "نادٍ رياضي",
+            "fitness_centre": "نادٍ رياضي", "car_wash": "غسيل سيارات", "car_repair": "تصليح سيارات",
+            "mall": "مول", "shop": "محل", "store": "محل", "barber": "حلاق", "hairdresser": "صالون",
+            "beauty": "صالون تجميل", "pharmacy ": "صيدلية", "house": "منزل", "residential": "منطقة سكنية",
+            "city": "مدينة", "town": "بلدة", "village": "قرية", "neighbourhood": "حي",
+            "suburb": "حي", "district": "منطقة", "administrative": "منطقة إدارية",
+        ]
+        if let v = osmValue, let w = map[v] { return w }
+        if let t = type, let w = map[t] { return w }
+        return nil
+    }
+
     private static func photonSearch(_ query: String, near: CLLocationCoordinate2D?, limit: Int) async -> [Place] {
         var comps = URLComponents(string: "https://photon.komoot.io/api/")!
         var items = [URLQueryItem(name: "q", value: query),
@@ -55,26 +133,41 @@ enum GeoService {
                   let props = f["properties"] as? [String: Any] else { continue }
             let name = (props["name"] as? String) ?? (props["street"] as? String) ?? "مكان"
             var addressParts: [String] = []
-            if let street = props["street"] as? String, street != name { addressParts.append(street) }
-            if let district = props["district"] as? String { addressParts.append(district) }
-            if let city = props["city"] as? String { addressParts.append(city) }
-            if let country = props["country"] as? String { addressParts.append(country) }
+            if let hn = props["housenumber"] as? String, let st = props["street"] as? String {
+                addressParts.append("\(st) \(hn)")
+            } else if let street = props["street"] as? String, street != name { addressParts.append(street) }
+            for key in ["district", "locality", "city", "state", "country"] {
+                if let v = props[key] as? String, !addressParts.contains(v) { addressParts.append(v) }
+            }
             results.append(Place.make(name: name,
                                       address: addressParts.joined(separator: "، "),
-                                      lat: coords[1], lon: coords[0]))
+                                      lat: coords[1], lon: coords[0],
+                                      phone: props["phone"] as? String,
+                                      website: props["website"] as? String,
+                                      kind: kindWord(osmValue: props["osm_value"] as? String,
+                                                     type: props["type"] as? String)))
         }
-        var seen = Set<String>()
-        let unique = results.filter { seen.insert($0.id).inserted }
-        if let near {
-            let origin = CLLocation(latitude: near.latitude, longitude: near.longitude)
-            return unique.sorted {
-                origin.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) <
-                origin.distance(from: CLLocation(latitude: $1.latitude, longitude: $1.longitude))
-            }
-        }
-        return unique
+        return results
     }
 
+    private static func nominatimSearch(_ query: String, limit: Int) async -> [Place] {
+        var comps = URLComponents(string: "https://nominatim.openstreetmap.org/search")!
+        comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
+                            URLQueryItem(name: "q", value: query),
+                            URLQueryItem(name: "limit", value: "\(limit)"),
+                            URLQueryItem(name: "addressdetails", value: "1"),
+                            URLQueryItem(name: "accept-language", value: "ar")]
+        guard let url = comps.url, let rows = await getJSON(url) as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let latS = row["lat"] as? String, let lonS = row["lon"] as? String,
+                  let lat = Double(latS), let lon = Double(lonS) else { return nil }
+            let display = (row["display_name"] as? String) ?? ""
+            let name = (row["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? display.split(separator: ",").first.map(String.init) ?? "مكان"
+            return Place.make(name: name, address: display, lat: lat, lon: lon,
+                              kind: kindWord(osmValue: nil, type: row["type"] as? String))
+        }
+    }
 
     // MARK: - Reverse geocode (Nominatim)
     static func reverse(lat: Double, lon: Double) async -> Place? {
