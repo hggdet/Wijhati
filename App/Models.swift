@@ -144,6 +144,29 @@ final class TripsStore: ObservableObject {
     func remove(_ trip: Trip) { trips.removeAll { $0.id == trip.id } }
 }
 
+/// Recent places the user picked from search (newest first, max 10).
+final class SearchHistoryStore: ObservableObject {
+    @Published var items: [Place] = [] { didSet { persist() } }
+    private let key = "wijhati.searchHistory.v1"
+    init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([Place].self, from: data) {
+            items = decoded
+        }
+    }
+    private func persist() {
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+    func add(_ place: Place) {
+        var list = items.filter { !(abs($0.latitude - place.latitude) < 0.0005 && abs($0.longitude - place.longitude) < 0.0005) }
+        list.insert(place, at: 0)
+        items = Array(list.prefix(10))
+    }
+    func clear() { items = [] }
+}
+
 enum TransportChoice: String, CaseIterable, Identifiable {
     case driving, walking, cycling
     var id: String { rawValue }
