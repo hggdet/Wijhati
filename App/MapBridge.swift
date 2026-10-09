@@ -2,7 +2,7 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, ofmBright, dark, ofmDark, cartoon, satellite
+    case standard, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
     var label: String {
         switch self {
         case .standard: return "قياسية".loc
@@ -12,6 +12,7 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmDark: return "داكن".loc
         case .cartoon: return "كرتونية".loc
         case .satellite: return "قمر صناعي".loc
+        case .maptiler: return "MapTiler"
         }
     }
     var url: URL? {
@@ -23,9 +24,22 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmDark: return Self.patchedStyleFile("dark") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/satellite-style.json")
+        case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
+
+    /// The user's free MapTiler API key (Settings ← Map). Empty = the
+    /// MapTiler style has no URL and the map falls back to standard.
+    static var maptilerKey: String {
+        (UserDefaults.standard.string(forKey: "wijhati.maptilerKey") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private static var maptilerRemoteURL: URL? {
+        let key = maptilerKey
+        guard !key.isEmpty else { return nil }
+        return URL(string: "https://api.maptiler.com/maps/streets-v2/style.json?key=\(key)")
+    }
 
     // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
     // We download the liberty/positron styles once, rewrite every
@@ -72,6 +86,29 @@ enum MapStyleKind: String, CaseIterable {
                     try? out.write(to: file, options: .atomic)
                 }
             }.resume()
+        }
+        // MapTiler (streets-v2): same OpenMapTiles name fields, so the
+        // same Arabic label rule applies. Only when a key is configured.
+        if let remote = maptilerRemoteURL {
+            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let file = dir.appendingPathComponent("wijhati-maptiler-ar2.json")
+            if !FileManager.default.fileExists(atPath: file.path) {
+                URLSession.shared.dataTask(with: remote) { data, _, _ in
+                    guard let data,
+                          var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                          var layers = root["layers"] as? [[String: Any]] else { return }
+                    for i in layers.indices {
+                        guard var layout = layers[i]["layout"] as? [String: Any],
+                              layout["text-field"] != nil else { continue }
+                        layout["text-field"] = arabicNameExpression()
+                        layers[i]["layout"] = layout
+                    }
+                    root["layers"] = layers
+                    if let out = try? JSONSerialization.data(withJSONObject: root) {
+                        try? out.write(to: file, options: .atomic)
+                    }
+                }.resume()
+            }
         }
     }
 
@@ -368,6 +405,7 @@ struct MapBridge: UIViewRepresentable {
             if parent.show3D && !currentStyle.isRaster {
                 let vector = (style.source(withIdentifier: "openmaptiles") as? MLNVectorTileSource)
                     ?? (style.source(withIdentifier: "versatiles-shortbread") as? MLNVectorTileSource)
+                    ?? (style.source(withIdentifier: "maptiler_planet") as? MLNVectorTileSource)
                 let isShortbread = style.source(withIdentifier: "versatiles-shortbread") != nil
                 if style.layer(withIdentifier: layerID) == nil, let vector {
                     let layer = MLNFillExtrusionStyleLayer(identifier: layerID, source: vector)
