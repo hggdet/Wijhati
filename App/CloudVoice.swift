@@ -22,8 +22,27 @@ final class CloudVoice {
         VoiceOption(name: "ar-AE-FatimaNeural", label: "فاطمة — إماراتية"),
     ]
 
-    static var key: String { UserDefaults.standard.string(forKey: "wijhati.azureKey") ?? "" }
-    static var region: String { UserDefaults.standard.string(forKey: "wijhati.azureRegion") ?? "" }
+    // Built-in default credentials so the Iraqi voices work out of
+    // the box with zero setup. The key is stored lightly masked (not
+    // plain text) and a user-entered key in Settings overrides it.
+    // If the free quota is ever drained or the key leaks, regenerate
+    // it in the Azure portal and ship an update.
+    private static let maskedDefaultKey = "eN6mbppOQvdp34MOkkQwjkDhgzSLMWz5Q+GBJYY9Z/x7x5cP1QBH4UnLggSkDV/cQ/i+G6gmWfwDqIcXozRR03j7ggWoRH+Fe9CFBKM0R/FDp6o8"
+    private static let maskBytes: [UInt8] = [0x3A, 0x91, 0xC4, 0x5D, 0xE2, 0x77, 0x08, 0xB6]
+    static var defaultKey: String {
+        guard let data = Data(base64Encoded: maskedDefaultKey), !data.isEmpty else { return "" }
+        let bytes = data.enumerated().map { $0.element ^ maskBytes[$0.offset % maskBytes.count] }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    static var key: String {
+        let entered = UserDefaults.standard.string(forKey: "wijhati.azureKey") ?? ""
+        return entered.isEmpty ? defaultKey : entered
+    }
+    static var region: String {
+        let entered = UserDefaults.standard.string(forKey: "wijhati.azureRegion") ?? ""
+        return entered.isEmpty ? "eastus" : entered
+    }
     static var configured: Bool { !key.isEmpty && !region.isEmpty }
     static var selectedVoice: String {
         UserDefaults.standard.string(forKey: "wijhati.azureVoice") ?? "ar-IQ-BasselNeural"
