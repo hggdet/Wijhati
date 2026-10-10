@@ -145,7 +145,6 @@ struct MapBridge: UIViewRepresentable {
     var tripCoords: [CLLocationCoordinate2D]
     var styleKind: MapStyleKind
     var show3D: Bool
-    var showLandmark3D: Bool = true
     var followUser: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
@@ -175,11 +174,6 @@ struct MapBridge: UIViewRepresentable {
         longPress.minimumPressDuration = 0.45
         map.addGestureRecognizer(longPress)
         context.coordinator.map = map
-        if parent.showLandmark3D {
-            let landmark = LandmarkOverlay()
-            landmark.attach(to: map)
-            context.coordinator.landmark = landmark
-        }
         return map
     }
 
@@ -221,17 +215,6 @@ struct MapBridge: UIViewRepresentable {
         if context.coordinator.styleReady, let style = map.style {
             context.coordinator.refreshLayers(style: style)
         }
-        if parent.showLandmark3D {
-            if context.coordinator.landmark == nil {
-                let landmark = LandmarkOverlay()
-                landmark.attach(to: map)
-                context.coordinator.landmark = landmark
-            }
-            context.coordinator.landmark?.sync(map: map)
-        } else if let landmark = context.coordinator.landmark {
-            landmark.detach()
-            context.coordinator.landmark = nil
-        }
     }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
@@ -245,7 +228,6 @@ struct MapBridge: UIViewRepresentable {
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
-        var landmark: LandmarkOverlay?
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             parent.onMapTap()
@@ -280,17 +262,8 @@ struct MapBridge: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             failedStyle = nil
             styleReady = true
-            landmark?.sync(map: mapView)
             lastLayerSignature = ""
             refreshLayers(style: style)
-        }
-
-        func mapViewRegionIsChanging(_ mapView: MLNMapView) {
-            landmark?.sync(map: mapView)
-        }
-
-        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
-            landmark?.sync(map: mapView)
         }
 
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool { false }
