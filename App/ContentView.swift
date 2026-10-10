@@ -47,6 +47,7 @@ struct ContentView: View {
     @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
     @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.officialLayer") private var officialEnabled = true
+    @AppStorage("wijhati.landmarks3D") private var landmarks3D = true
     @AppStorage("wijhati.azureVoice") private var azureVoice = "ar-IQ-BasselNeural"
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
@@ -173,6 +174,7 @@ struct ContentView: View {
                 tripCoords: [],
                 styleKind: styleKind,
                 show3D: show3D,
+                showLandmark3D: landmarks3D,
                 followUser: followUser,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
@@ -1144,6 +1146,7 @@ struct ContentView: View {
                 .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
+                Toggle("معالم ثلاثية الأبعاد".loc, isOn: $landmarks3D)
                 VStack(spacing: 8) {
                     HStack {
                         Text("شريط التحكم بالزجاج".loc)
@@ -1265,7 +1268,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.52").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.53").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
