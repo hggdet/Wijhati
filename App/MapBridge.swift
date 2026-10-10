@@ -145,7 +145,7 @@ struct MapBridge: UIViewRepresentable {
     var tripCoords: [CLLocationCoordinate2D]
     var styleKind: MapStyleKind
     var show3D: Bool
-    var showLandmark3D: Bool
+    var showLandmark3D: Bool = true
     var followUser: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
