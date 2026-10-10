@@ -175,7 +175,7 @@ struct MapBridge: UIViewRepresentable {
         longPress.minimumPressDuration = 0.45
         map.addGestureRecognizer(longPress)
         context.coordinator.map = map
-        context.coordinator.updateLandmark(map: map, enabled: parent.showLandmark3D)
+        context.coordinator.updateLandmark(map: map, enabled: showLandmark3D)
         return map
     }
 
@@ -217,7 +217,7 @@ struct MapBridge: UIViewRepresentable {
         if context.coordinator.styleReady, let style = map.style {
             context.coordinator.refreshLayers(style: style)
         }
-        context.coordinator.updateLandmark(map: map, enabled: parent.showLandmark3D)
+        context.coordinator.updateLandmark(map: map, enabled: showLandmark3D)
     }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
@@ -284,6 +284,14 @@ struct MapBridge: UIViewRepresentable {
             landmark?.sync(map: mapView)
             lastLayerSignature = ""
             refreshLayers(style: style)
+        }
+
+        func mapViewRegionIsChanging(_ mapView: MLNMapView) {
+            landmark?.sync(map: mapView)
+        }
+
+        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            landmark?.sync(map: mapView)
         }
 
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool { false }
