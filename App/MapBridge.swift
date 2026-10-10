@@ -464,7 +464,6 @@ struct MapBridge: UIViewRepresentable {
                         layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#d8d0c0", 15, "#bfc7d1", 40, "#93a9c2", 90, "#6886a8"] as [Any])
                     }
                     layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.88)
-                    layer.fillExtrusionVerticalGradient = NSExpression(forConstantValue: true)
                     layer.minimumZoomLevel = 15
                     // Insert BELOW the label layers so buildings never cover text.
                     if let firstSymbol = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
