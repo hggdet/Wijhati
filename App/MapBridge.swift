@@ -228,6 +228,7 @@ struct MapBridge: UIViewRepresentable {
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
+        var was3DOn = false
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             parent.onMapTap()
         }
@@ -472,11 +473,18 @@ struct MapBridge: UIViewRepresentable {
                         style.addLayer(layer)
                     }
                 }
-                if let map {
-                    if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
-                    if map.camera.pitch < 50 { var cam = map.camera; cam.pitch = 50; map.setCamera(cam, animated: true) }
+                if let map, !was3DOn {
+                    was3DOn = true
+                    // Engage the 3D view once per enable — and only when
+                    // the user is already looking at a city, never yank
+                    // the camera away from a world/regional view.
+                    if map.zoomLevel >= 13.5 {
+                        if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
+                        if map.camera.pitch < 50 { var cam = map.camera; cam.pitch = 50; map.setCamera(cam, animated: true) }
+                    }
                 }
             } else {
+                was3DOn = false
                 if let layer = style.layer(withIdentifier: layerID) { style.removeLayer(layer) }
                 if parent.show3D == false, let map, map.camera.pitch > 1 { var cam = map.camera; cam.pitch = 0; map.setCamera(cam, animated: true) }
             }
