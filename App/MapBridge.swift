@@ -145,7 +145,6 @@ struct MapBridge: UIViewRepresentable {
     var tripCoords: [CLLocationCoordinate2D]
     var styleKind: MapStyleKind
     var show3D: Bool
-    var showLandmark3D: Bool = true
     var followUser: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
@@ -175,7 +174,6 @@ struct MapBridge: UIViewRepresentable {
         longPress.minimumPressDuration = 0.45
         map.addGestureRecognizer(longPress)
         context.coordinator.map = map
-        context.coordinator.updateLandmark(map: map, enabled: showLandmark3D)
         return map
     }
 
@@ -217,7 +215,6 @@ struct MapBridge: UIViewRepresentable {
         if context.coordinator.styleReady, let style = map.style {
             context.coordinator.refreshLayers(style: style)
         }
-        context.coordinator.updateLandmark(map: map, enabled: showLandmark3D)
     }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
@@ -231,23 +228,6 @@ struct MapBridge: UIViewRepresentable {
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
-        var landmark: LandmarkOverlay?
-
-        /// Create/remove the 3D landmark overlay and keep it synced.
-        func updateLandmark(map: MLNMapView, enabled: Bool) {
-            if enabled {
-                if landmark == nil {
-                    let overlay = LandmarkOverlay()
-                    overlay.attach(to: map)
-                    landmark = overlay
-                }
-                landmark?.sync(map: map)
-            } else if let overlay = landmark {
-                overlay.detach()
-                landmark = nil
-            }
-        }
-
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             parent.onMapTap()
         }
@@ -281,17 +261,8 @@ struct MapBridge: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             failedStyle = nil
             styleReady = true
-            landmark?.sync(map: mapView)
             lastLayerSignature = ""
             refreshLayers(style: style)
-        }
-
-        func mapViewRegionIsChanging(_ mapView: MLNMapView) {
-            landmark?.sync(map: mapView)
-        }
-
-        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
-            landmark?.sync(map: mapView)
         }
 
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool { false }
@@ -484,8 +455,16 @@ struct MapBridge: UIViewRepresentable {
                         layer.fillExtrusionHeight = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_height"]] as [Any])
                         layer.fillExtrusionBase = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_min_height"]] as [Any])
                     }
-                    layer.fillExtrusionColor = NSExpression(forConstantValue: UIColor(red: 0.62, green: 0.68, blue: 0.78, alpha: 1))
-                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.7)
+                    // Colour by height (warm stone for low buildings,
+                    // cooler steel for towers) — the "detailed 3D city"
+                    // look from the post, from open data.
+                    if isShortbread {
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#d8d0c0", 15, "#bfc7d1", 40, "#93a9c2", 90, "#6886a8"] as [Any])
+                    } else {
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#d8d0c0", 15, "#bfc7d1", 40, "#93a9c2", 90, "#6886a8"] as [Any])
+                    }
+                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.88)
+                    layer.fillExtrusionVerticalGradient = NSExpression(forConstantValue: true)
                     layer.minimumZoomLevel = 15
                     // Insert BELOW the label layers so buildings never cover text.
                     if let firstSymbol = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
@@ -496,7 +475,7 @@ struct MapBridge: UIViewRepresentable {
                 }
                 if let map {
                     if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
-                    if map.camera.pitch < 18 { var cam = map.camera; cam.pitch = 22; map.setCamera(cam, animated: true) }
+                    if map.camera.pitch < 50 { var cam = map.camera; cam.pitch = 50; map.setCamera(cam, animated: true) }
                 }
             } else {
                 if let layer = style.layer(withIdentifier: layerID) { style.removeLayer(layer) }
