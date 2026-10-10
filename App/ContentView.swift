@@ -174,7 +174,6 @@ struct ContentView: View {
                 tripCoords: [],
                 styleKind: styleKind,
                 show3D: show3D,
-                showLandmark3D: landmarks3D,
                 followUser: followUser,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
