@@ -76,7 +76,7 @@ struct ContentView: View {
 
     @State private var showSaved = false
     @State private var showSettings = false
-    @State private var show3D = false
+    @AppStorage("wijhati.show3D") private var show3D = true
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
     @State private var showDirections = false
@@ -1265,7 +1265,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.54").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.55").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
