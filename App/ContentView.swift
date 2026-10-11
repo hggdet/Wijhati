@@ -381,7 +381,7 @@ struct ContentView: View {
         .task {
             await community.refresh()
         }
-        .fullScreenCover(isPresented: $showSettings) { settingsSheet }
+        .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
@@ -1444,7 +1444,8 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("إغلاق".loc) { showSettings = false } } }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
