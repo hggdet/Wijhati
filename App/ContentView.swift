@@ -114,7 +114,8 @@ struct ContentView: View {
     @State private var suggestTask: Task<Void, Never>?
     @State private var suggestionSearching = false
     @State private var pendingQuickRoute = false
-    @State private var showIntro = true
+    @State private var pendingInitialLocationCenter = true
+    @State private var lastStartupCenterTimestamp: Date?
     @State private var pendingCenterOnUser = false
     @State private var locationNotice: String?
     @State private var placeSheetFull = false
@@ -248,12 +249,6 @@ struct ContentView: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showSearch)
 
             if voice.active { pocketOverlay }
-            if showIntro {
-                WorldIntroView {
-                    withAnimation(.easeOut(duration: 0.38)) { showIntro = false }
-                }
-                .transition(.opacity)
-            }
         }
     }
 
@@ -261,26 +256,28 @@ struct ContentView: View {
         mapComposition
         .onAppear {
             locationService.setAppActive(scenePhase == .active)
-            locationService.request()
+            locationService.requestCurrentLocation()
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
             syncWidgetPlaces()
             syncStyleToScheme()
-            Task {
-                try? await Task.sleep(nanoseconds: 4_800_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { showIntro = false }
-            }
             if let loc = locationService.location {
-                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 13)
+                centerAtStartupIfNeeded(loc, resolvesInitialFix: false)
             }
         }
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
             if pendingCenterOnUser {
-                pendingCenterOnUser = false
-                centerOnMyLocation()
+                if loc.horizontalAccuracy >= 0 {
+                    centerMapOnUser(loc)
+                    if abs(Date().timeIntervalSince(loc.timestamp)) <= 30 {
+                        pendingCenterOnUser = false
+                    }
+                }
+            } else if pendingInitialLocationCenter {
+                centerAtStartupIfNeeded(loc)
             }
-            locationNotice = nil
+            if !pendingCenterOnUser { locationNotice = nil }
             if pendingQuickRoute {
                 pendingQuickRoute = false
                 Task { await computeRoute() }
@@ -292,15 +289,19 @@ struct ContentView: View {
             checkSpeedLimit(loc)
         }
         .onChange(of: locationService.authorization) { _, status in
-            if pendingCenterOnUser && (status == .denied || status == .restricted) {
-                pendingCenterOnUser = false
+            if (pendingCenterOnUser || pendingInitialLocationCenter) &&
+                (status == .denied || status == .restricted) {
                 showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
-            } else if pendingCenterOnUser && (status == .authorizedWhenInUse || status == .authorizedAlways) {
+            } else if (pendingCenterOnUser || pendingInitialLocationCenter) &&
+                        (status == .authorizedWhenInUse || status == .authorizedAlways) {
                 locationService.requestCurrentLocation()
             }
         }
         .onChange(of: scenePhase) { _, phase in
             locationService.setAppActive(phase == .active)
+            if phase == .active && (pendingCenterOnUser || pendingInitialLocationCenter) {
+                locationService.requestCurrentLocation()
+            }
         }
         .onChange(of: voice.active) { _, active in
             locationService.setNavigationActive(active)
@@ -365,7 +366,6 @@ struct ContentView: View {
                 openQuickPlace(place)
             }
             if url.host == "setup" {
-                showIntro = false
                 showSettings = true
             }
         }
@@ -524,7 +524,7 @@ struct ContentView: View {
     private var floatingMapTools: some View {
         HStack {
             VStack(alignment: .leading, spacing: 10) {
-                Button { centerOnMyLocation() } label: {
+                Button { centerOnMyLocation(requestFreshFix: true) } label: {
                     mapToolCircle(icon: "location.fill",
                                   tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                 }
@@ -1875,8 +1875,10 @@ struct ContentView: View {
         }
     }
 
-    private func centerOnMyLocation() {
+    private func centerOnMyLocation(requestFreshFix: Bool = false) {
         if showSearch { closeMapSearch() }
+        pendingInitialLocationCenter = false
+        UISelectionFeedbackGenerator().selectionChanged()
         if locationService.authorization == .denied || locationService.authorization == .restricted {
             pendingCenterOnUser = true
             showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
@@ -1893,18 +1895,33 @@ struct ContentView: View {
         }
         pendingCenterOnUser = false
         locationNotice = nil
-        followUser = voice.active
-        centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
-        UISelectionFeedbackGenerator().selectionChanged()
-        if Date().timeIntervalSince(loc.timestamp) > 30 {
+        centerMapOnUser(loc)
+        let locationIsStale = abs(Date().timeIntervalSince(loc.timestamp)) > 30
+        if requestFreshFix || locationIsStale {
             pendingCenterOnUser = true
-            showLocationNotice("جارٍ تحديث موقعك…".loc)
+            if locationIsStale { showLocationNotice("جارٍ تحديث موقعك…".loc) }
             locationService.requestCurrentLocation()
         }
     }
 
+    private func centerMapOnUser(_ loc: CLLocation) {
+        followUser = voice.active
+        centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+    }
+
+    private func centerAtStartupIfNeeded(_ loc: CLLocation, resolvesInitialFix: Bool = true) {
+        guard pendingInitialLocationCenter, loc.horizontalAccuracy >= 0 else { return }
+        if lastStartupCenterTimestamp != loc.timestamp {
+            lastStartupCenterTimestamp = loc.timestamp
+            centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+        }
+        let age = Date().timeIntervalSince(loc.timestamp)
+        if resolvesInitialFix && age >= -30 && age <= 30 {
+            pendingInitialLocationCenter = false
+        }
+    }
+
     private func openQuickPlace(_ place: Place) {
-        showIntro = false
         select(place)
         if locationService.location != nil {
             Task { await computeRoute() }
@@ -1916,6 +1933,7 @@ struct ContentView: View {
     private func select(_ place: Place) {
         pendingQuickRoute = false
         routeFailed = false
+        pendingInitialLocationCenter = false
         let selectedFromSearch = showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id })
         if selectedFromSearch {
             historyStore.add(place)

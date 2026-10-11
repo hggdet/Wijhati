@@ -307,7 +307,8 @@ struct MapBridge: UIViewRepresentable {
         map.compassView.isHidden = true
         map.logoView.isHidden = true
         map.attributionButton.isHidden = true
-        map.setCenter(CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661), zoomLevel: 11, animated: false)
+        let initialCenter = userLocation ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
+        map.setCenter(initialCenter, zoomLevel: userLocation == nil ? 11 : 15, animated: false)
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleTap(_:)))
         tap.cancelsTouchesInView = false
