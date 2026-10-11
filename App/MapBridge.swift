@@ -163,7 +163,7 @@ struct MapBridge: UIViewRepresentable {
         map.prefetchesTiles = true
         map.compassView.isHidden = true
         map.logoView.isHidden = true
-        map.attributionButton.isHidden = true
+        map.attributionButton.isHidden = false
         map.setCenter(CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661), zoomLevel: 11, animated: false)
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleTap(_:)))
