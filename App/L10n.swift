@@ -102,6 +102,7 @@ enum L10n {
         "حذف": ("Delete", "سڕینەوە"),
         "الطقس عند موقعك": ("Weather at Your Location", "کەشوھەوا لە شوێنەکەت"),
         "خرائط وملاحة عربية أنيقة": ("Elegant maps & navigation", "نەخشە و ڕێنیشاندانی جوان"),
+        "ابدأ رحلتك": ("Start your journey", "گەشتەکەت دەست پێبکە"),
         "من تطوير عبدالباسط خضير": ("Developed by Abdulbasit Khudair", "لە گەشەپێدانی عبدالباسط خضير"),
         // Add-place sheet
         "نشر مكان محلي": ("Add a Local Place", "شوێنێکی ناوخۆیی زیاد بکە"),

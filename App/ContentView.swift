@@ -3,6 +3,18 @@ import CoreLocation
 import UIKit
 import WidgetKit
 
+private struct MapControlPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.56),
+                       value: configuration.isPressed)
+    }
+}
+
 
 struct Category: Identifiable {
     var id: String { key }
@@ -207,7 +219,10 @@ struct ContentView: View {
 
             VStack(spacing: 8) {
                 topBar
-                if showSearch { searchResultsPanel }
+                if showWeatherDetail, let w = localWeather {
+                    weatherDetailCard(w)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 if !showSearch {
                     statusPills
                     if let locationNotice {
@@ -218,43 +233,12 @@ struct ContentView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     if loadingRoute { routeLoadingBanner }
-                    if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
-                    Spacer()
-                    HStack {
-                        VStack(spacing: 10) {
-                            Button { centerOnMyLocation() } label: {
-                                mapToolLabel(icon: "location.fill", title: "موقعي".loc,
-                                             tint: Color(red: 0.04, green: 0.62, blue: 0.49))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("موقعي".loc)
-                            .accessibilityHint("توسيط الخريطة على موقعك".loc)
-                            Button { showSettings = true } label: {
-                                mapToolLabel(icon: "gearshape.fill", title: "الإعدادات".loc,
-                                             tint: adaptiveInk)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("الإعدادات".loc)
-                            if selected != nil {
-                                Button { show3D.toggle() } label: {
-                                    mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
-                                                 tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
-                                .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .transition(.opacity)
-                    .environment(\.layoutDirection, .leftToRight)
-                    if selected != nil || selectedRoute != nil || !stops.isEmpty || routeNotice != nil {
-                        bottomStack
-                    }
-                } else {
-                    Spacer(minLength: 0)
+                }
+                Spacer(minLength: 0)
+                if showSearch { searchResultsPanel }
+                floatingMapTools
+                if !showSearch && (selected != nil || selectedRoute != nil || !stops.isEmpty || routeNotice != nil) {
+                    bottomStack
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -264,7 +248,12 @@ struct ContentView: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showSearch)
 
             if voice.active { pocketOverlay }
-            if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
+            if showIntro {
+                WorldIntroView {
+                    withAnimation(.easeOut(duration: 0.38)) { showIntro = false }
+                }
+                .transition(.opacity)
+            }
         }
     }
 
@@ -456,30 +445,12 @@ struct ContentView: View {
 
     // (intro moved to IntroView below)
 
-    // MARK: - Top bar (search + weather + compact menu)
+    // MARK: - Top bar (weather + compact menu)
 
 
 
     private var topBar: some View {
         HStack(spacing: 9) {
-            searchBar
-                .frame(maxWidth: .infinity)
-
-            Button { showWeatherDetail.toggle(); refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true) } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "cloud.sun.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.88, green: 0.58, blue: 0.16))
-                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
-                        .font(.system(size: 11, weight: .bold)).foregroundStyle(adaptiveInk)
-                }
-                .frame(width: 54, height: 54)
-            }
-            .glass(cornerRadius: 27)
-            .buttonStyle(.plain)
-            .accessibilityLabel("الطقس الحالي".loc)
-            .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
-
             Menu {
                 Button { showSaved = true } label: {
                     Label("الأماكن المحفوظة".loc, systemImage: "bookmark")
@@ -494,11 +465,99 @@ struct ContentView: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(adaptiveInk)
-                    .frame(width: 48, height: 54)
+                    .frame(width: 56, height: 56)
             }
-            .glass(cornerRadius: 25)
+            .glass(cornerRadius: 17)
+            .buttonStyle(MapControlPressStyle())
             .accessibilityLabel("خيارات التطبيق".loc)
+
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
+                    showWeatherDetail.toggle()
+                }
+                refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true)
+            } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "cloud.sun.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.88, green: 0.58, blue: 0.16))
+                        .symbolEffect(.pulse, value: showWeatherDetail)
+                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(adaptiveInk)
+                        .contentTransition(.numericText())
+                }
+                .frame(width: 56, height: 56)
+            }
+            .glass(cornerRadius: 17)
+            .buttonStyle(MapControlPressStyle())
+            .accessibilityLabel("الطقس الحالي".loc)
+            .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
         }
+        .frame(maxWidth: .infinity)
+        .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private var floatingMapTools: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 10) {
+                Button { centerOnMyLocation() } label: {
+                    mapToolLabel(icon: "location.fill", title: "موقعي".loc,
+                                 tint: Color(red: 0.04, green: 0.62, blue: 0.49))
+                }
+                .buttonStyle(MapControlPressStyle())
+                .accessibilityLabel("موقعي".loc)
+                .accessibilityHint("توسيط الخريطة على موقعك".loc)
+                .transition(.scale(scale: 0.9).combined(with: .opacity))
+
+                HStack(spacing: 10) {
+                    Button { showSettings = true } label: {
+                        mapToolLabel(icon: "gearshape.fill", title: "الإعدادات".loc,
+                                     tint: adaptiveInk)
+                    }
+                    .buttonStyle(MapControlPressStyle())
+                    .accessibilityLabel("الإعدادات".loc)
+
+                    if showSearch {
+                        searchBar
+                            .frame(maxWidth: .infinity)
+                            .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
+                    } else {
+                        Button {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                showSearch = true
+                            }
+                            DispatchQueue.main.async { overlayFocused = true }
+                        } label: {
+                            mapToolLabel(icon: "magnifyingglass", title: "بحث".loc,
+                                         tint: Color(red: 0.35, green: 0.48, blue: 0.62))
+                        }
+                        .buttonStyle(MapControlPressStyle())
+                        .accessibilityLabel("بحث".loc)
+                        .transition(.scale(scale: 0.88).combined(with: .opacity))
+                        Spacer(minLength: 0)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if selected != nil {
+                    Button { show3D.toggle() } label: {
+                        mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
+                                     tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
+                    }
+                    .buttonStyle(MapControlPressStyle())
+                    .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
+                    .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.layoutDirection, .leftToRight)
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: showSearch)
     }
 
     private func mapToolLabel(icon: String, title: String, tint: Color) -> some View {
@@ -513,9 +572,9 @@ struct ContentView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .frame(width: verticalSizeClass == .compact ? 52 : 60,
-               height: verticalSizeClass == .compact ? 52 : 60)
-        .glass(cornerRadius: verticalSizeClass == .compact ? 26 : 30)
+        .frame(width: verticalSizeClass == .compact ? 52 : 58,
+               height: verticalSizeClass == .compact ? 52 : 58)
+        .glass(cornerRadius: verticalSizeClass == .compact ? 15 : 17)
     }
 
     private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {
