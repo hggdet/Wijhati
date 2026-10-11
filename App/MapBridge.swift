@@ -532,8 +532,20 @@ struct MapBridge: UIViewRepresentable {
                 } else {
                     let source = MLNShapeSource(identifier: sourceID, shape: shape, options: nil)
                     style.addSource(source)
+                    if id == "route" {
+                        let halo = MLNLineStyleLayer(identifier: "\(id)-halo-layer", source: source)
+                        halo.lineColor = NSExpression(forConstantValue: UIColor(red: 1.0, green: 0.91, blue: 0.70, alpha: 0.96))
+                        halo.lineWidth = NSExpression(forConstantValue: 11.0)
+                        halo.lineOpacity = NSExpression(forConstantValue: 0.92)
+                        halo.lineCap = NSExpression(forConstantValue: "round")
+                        halo.lineJoin = NSExpression(forConstantValue: "round")
+                        style.addLayer(halo)
+                    }
                     let layer = MLNLineStyleLayer(identifier: "\(id)-layer", source: source)
-                    layer.lineColor = NSExpression(forConstantValue: color)
+                    let routeColor = id == "route"
+                        ? UIColor(red: 0.96, green: 0.39, blue: 0.16, alpha: 1)
+                        : color
+                    layer.lineColor = NSExpression(forConstantValue: routeColor)
                     layer.lineWidth = NSExpression(forConstantValue: width)
                     layer.lineOpacity = NSExpression(forConstantValue: opacity)
                     layer.lineCap = NSExpression(forConstantValue: "round")

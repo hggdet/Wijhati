@@ -212,31 +212,20 @@ struct ContentView: View {
                     Spacer()
                     VStack(spacing: 10) {
                         Button { advanceLocationStage() } label: {
-                            VStack(spacing: 2) {
-                                Image(systemName: locStageIcon)
-                                    .font(.system(size: 20, weight: .bold))
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(locStageColors.0, locStageColors.1)
-                                    .contentTransition(.symbolEffect(.replace))
-                                Text("موقعي".loc)
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(adaptiveInk)
-                            }
-                            .frame(width: 66, height: 66)
+                            mapToolLabel(icon: locStageIcon, title: "موقعي".loc,
+                                         tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                         }
-                        .glass(cornerRadius: 33)
-                        Button { showSearch = true } label: {
-                            VStack(spacing: 2) {
-                                Image(systemName: "safari.fill")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(adaptiveInk)
-                                Text("استكشف".loc)
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(adaptiveInk)
-                            }
-                            .frame(width: 66, height: 66)
+                        .buttonStyle(.plain)
+                        Button { show3D.toggle() } label: {
+                            mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
+                                         tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
                         }
-                        .glass(cornerRadius: 33)
+                        .buttonStyle(.plain)
+                        Button { showSaved = true } label: {
+                            mapToolLabel(icon: "bookmark.fill", title: "المحفوظات".loc,
+                                         tint: Color(red: 0.85, green: 0.47, blue: 0.22))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .transition(.opacity)
@@ -401,39 +390,59 @@ struct ContentView: View {
 
     // (intro moved to IntroView below)
 
-    // MARK: - Top bar (weather + compass)
+    // MARK: - Top bar (search + weather + compact menu)
 
 
 
     private var topBar: some View {
-        HStack(alignment: .top) {
+        HStack(spacing: 9) {
+            searchBar
+                .frame(maxWidth: .infinity)
+
             Button { showWeatherDetail.toggle(); refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true) } label: {
-                VStack(spacing: 1) {
-                    Image(systemName: "sun.max.fill").font(.system(size: 16)).foregroundStyle(.yellow)
-                    Text(localWeather.map { tempUnit == "f" ? "\(Int(($0.temperature * 9 / 5 + 32).rounded()))" : "\(Int($0.temperature.rounded()))" } ?? "—")
+                VStack(spacing: 2) {
+                    Image(systemName: "cloud.sun.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.88, green: 0.58, blue: 0.16))
+                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(adaptiveInk)
                 }
-                .frame(width: 46, height: 46)
+                .frame(width: 54, height: 54)
             }
-            .glass(cornerRadius: 23)
+            .glass(cornerRadius: 27)
+            .buttonStyle(.plain)
 
-            searchBar
-
-            Button { showAssistant = true } label: {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(LinearGradient(colors: [.red, .blue, .green], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: 46, height: 46)
-            }
-            .glass(cornerRadius: 23)
-            Button { showSettings = true } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 18, weight: .semibold))
+            Menu {
+                Button { showAssistant = true } label: {
+                    Label("المساعد الذكي".loc, systemImage: "sparkles")
+                }
+                Button { showSettings = true } label: {
+                    Label("الإعدادات".loc, systemImage: "gearshape")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(adaptiveInk)
-                    .frame(width: 46, height: 46)
+                    .frame(width: 48, height: 54)
             }
-            .glass(cornerRadius: 23)
+            .glass(cornerRadius: 25)
         }
+    }
+
+    private func mapToolLabel(icon: String, title: String, tint: Color) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(tint)
+                .contentTransition(.symbolEffect(.replace))
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(adaptiveInk)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(width: 58, height: 58)
+        .glass(cornerRadius: 29)
     }
 
     private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {
@@ -578,9 +587,11 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Button { showSearch = true } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.47, green: 0.34, blue: 0.22))
                     Text(query.isEmpty ? "ابحث عن مكان أو عنوان".loc : query)
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(query.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                         .lineLimit(1)
                     Spacer()
@@ -595,9 +606,12 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 46)
-        .glass(cornerRadius: 23)
+        .padding(.horizontal, 15)
+        .frame(height: 54)
+        .background(Color(red: 0.98, green: 0.97, blue: 0.90).opacity(0.30), in: Capsule())
+        .glass(cornerRadius: 27)
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.62), lineWidth: 1))
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
     }
 
 
@@ -723,8 +737,60 @@ struct ContentView: View {
 
     // MARK: - Route UI
 
+    private func expectedArrival(_ duration: Double) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: language == "ku" ? "ckb" : language)
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: Date().addingTimeInterval(duration))
+    }
+
     private func routeBar(_ route: RouteData) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            Capsule().fill(Color.secondary.opacity(0.34)).frame(width: 38, height: 5)
+
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("إلى \(selected?.name ?? "وجهتك")")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    Text("الوصول المتوقع".loc)
+                        .font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    Text(expectedArrival(route.duration))
+                        .font(.system(size: 27, weight: .heavy, design: .rounded))
+                        .foregroundStyle(adaptiveInk)
+                        .contentTransition(.numericText())
+                }
+                Spacer(minLength: 8)
+                Button { clearRoute() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                        .background(Color.white.opacity(0.42), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Label(fmtDist(route.distance), systemImage: "arrow.left.and.right")
+                Circle().fill(Color.secondary.opacity(0.45)).frame(width: 3, height: 3)
+                Label(formatDuration(route.duration), systemImage: "clock")
+                Spacer(minLength: 4)
+                Button {
+                    directionsText = makeDirectionsText()
+                    showDirections = true
+                } label: {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 34, height: 30)
+                        .background(Color.white.opacity(0.40), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("وصف الوصول".loc)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(adaptiveInk)
+
             HStack(spacing: 6) {
                 ForEach(TransportChoice.allCases) { choice in
                     Button {
@@ -732,67 +798,66 @@ struct ContentView: View {
                         Task { await computeRoute() }
                     } label: {
                         Label(choice.label, systemImage: choice.icon)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 9).padding(.vertical, 6)
-                            .background(transport == choice ? Color.blue.opacity(0.85) : Color.white.opacity(0.14),
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 9).padding(.vertical, 7)
+                            .background(transport == choice ? Color(red: 0.04, green: 0.68, blue: 0.55) : Color.white.opacity(0.38),
                                         in: Capsule())
                             .foregroundStyle(transport == choice ? .white : .primary)
                     }
+                    .buttonStyle(.plain)
                 }
                 if loadingRoute { ProgressView().controlSize(.small) }
                 Spacer()
-                Button { clearRoute() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
             }
+
             if routes.count > 1 {
-                HStack(spacing: 6) {
-                    ForEach(routes.indices, id: \.self) { idx in
-                        Button { selectedRouteIndex = idx } label: {
-                            Text(idx == 0 ? "الأسرع: \(formatDuration(routes[idx].duration))" : "بديل: \(formatDuration(routes[idx].duration))")
-                                .font(.caption2.weight(.medium))
-                                .padding(.horizontal, 8).padding(.vertical, 5)
-                                .background(idx == selectedRouteIndex ? Color.blue.opacity(0.25) : Color.white.opacity(0.1), in: Capsule())
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(routes.indices, id: \.self) { idx in
+                            Button { selectedRouteIndex = idx } label: {
+                                Text(idx == 0 ? "الأسرع: \(formatDuration(routes[idx].duration))" : "بديل: \(formatDuration(routes[idx].duration))")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 9).padding(.vertical, 6)
+                                    .background(idx == selectedRouteIndex ? Color.orange.opacity(0.22) : Color.white.opacity(0.32), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    Spacer()
                 }
             }
-            HStack(spacing: 12) {
-                Label("\(transport.label): \(formatDuration(route.duration))", systemImage: "clock")
-                Label(fmtDist(route.distance), systemImage: "arrow.triangle.swap")
-                if !elevations.isEmpty {
-                    Label("▲ \(Int(elevations.max() ?? 0)) \("م".loc)", systemImage: "mountain.2")
-                }
-                Spacer()
-                Button {
-                    directionsText = makeDirectionsText()
-                    showDirections = true
-                } label: {
-                    Label("وصف الوصول".loc, systemImage: "text.bubble")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Color.white.opacity(0.14), in: Capsule())
-                }
-            }
-            .font(.caption.weight(.medium))
+
             Button {
                 if let place = selected {
                     followUser = true
                     voice.start(steps: route.steps, destination: place.coordinate)
                 }
             } label: {
-                Label("انطلق الآن".loc, systemImage: "location.fill")
+                Label(voice.active ? "الملاحة نشطة".loc : "انطلق الآن".loc,
+                      systemImage: voice.active ? "location.north.fill" : "location.fill")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color(red: 0.04, green: 0.72, blue: 0.60), in: RoundedRectangle(cornerRadius: 16))
+                    .frame(height: 52)
+                    .background(LinearGradient(colors: [Color(red: 0.06, green: 0.73, blue: 0.60), Color(red: 0.02, green: 0.62, blue: 0.51)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .foregroundStyle(.white)
             }
-            if !elevations.isEmpty { ElevationChart(values: elevations).frame(height: 34) }
+            .buttonStyle(.plain)
+            .disabled(voice.active)
+            .opacity(voice.active ? 0.78 : 1)
+
+            if !elevations.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "mountain.2").foregroundStyle(.secondary)
+                    ElevationChart(values: elevations).frame(height: 22)
+                    Text("▲ \(Int(elevations.max() ?? 0)) \("م".loc)")
+                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                }
+            }
         }
-        .padding(14)
-        .glass(cornerRadius: 26)
+        .padding(.horizontal, 16)
+        .padding(.top, 11)
+        .padding(.bottom, 14)
+        .glass(cornerRadius: 30)
+        .shadow(color: Color(red: 0.17, green: 0.40, blue: 0.35).opacity(0.18), radius: 18, y: 8)
     }
 
     // MARK: - Place card
@@ -808,7 +873,7 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
-            .background(primary ? AnyShapeStyle(Color.blue) : AnyShapeStyle(tint ?? Color.white.opacity(0.12)),
+            .background(primary ? AnyShapeStyle(Color(red: 0.04, green: 0.68, blue: 0.55)) : AnyShapeStyle(tint ?? Color.white.opacity(0.12)),
                         in: RoundedRectangle(cornerRadius: 13))
             .foregroundStyle(primary ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         }
@@ -1615,14 +1680,6 @@ struct ContentView: View {
     }
 
     // MARK: - Actions
-
-    private var locStageColors: (Color, Color) {
-        switch locStage {
-        case 2: return (.red, .blue)       // compass stage
-        case 3: return (.green, .green)  // 3D stage
-        default: return (adaptiveInk, adaptiveInk)
-        }
-    }
 
     private var locStageIcon: String {
         switch locStage {
