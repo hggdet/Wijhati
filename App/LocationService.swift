@@ -15,18 +15,98 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     private var lastRecorded: CLLocation?
 
     private let manager = CLLocationManager()
+    private var appIsActive = true
+    private var navigationActive = false
+    private var cameraNavigationActive = false
+    private var locationUpdatesActive = false
+    private var headingUpdatesActive = false
 
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 5
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        manager.distanceFilter = 15
+        manager.activityType = .other
+        manager.pausesLocationUpdatesAutomatically = false
     }
 
     func request() {
-        manager.requestWhenInUseAuthorization()
-        manager.startUpdatingLocation()
-        manager.startUpdatingHeading()
+        if manager.authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        }
+        refreshActivityProfile()
+    }
+
+    func setAppActive(_ active: Bool) {
+        guard appIsActive != active else { return }
+        appIsActive = active
+        refreshActivityProfile()
+    }
+
+    func setNavigationActive(_ active: Bool) {
+        guard navigationActive != active else { return }
+        navigationActive = active
+        refreshActivityProfile()
+    }
+
+    func setCameraNavigationActive(_ active: Bool) {
+        guard cameraNavigationActive != active else { return }
+        cameraNavigationActive = active
+        refreshActivityProfile()
+    }
+
+    private func refreshActivityProfile() {
+        let status = manager.authorizationStatus
+        if authorization != status { authorization = status }
+        let isAuthorized = status == .authorizedWhenInUse || status == .authorizedAlways
+
+        guard isAuthorized else {
+            stopLocationUpdatesIfNeeded()
+            stopHeadingUpdatesIfNeeded()
+            return
+        }
+
+        let highAccuracyNeeded = navigationActive || recording || (cameraNavigationActive && appIsActive)
+        let shouldRunLocation = appIsActive || navigationActive || recording
+
+        if shouldRunLocation {
+            manager.desiredAccuracy = highAccuracyNeeded
+                ? kCLLocationAccuracyBestForNavigation
+                : kCLLocationAccuracyNearestTenMeters
+            manager.distanceFilter = highAccuracyNeeded ? 7 : 15
+            manager.activityType = navigationActive || cameraNavigationActive
+                ? .otherNavigation
+                : (recording ? .fitness : .other)
+            manager.pausesLocationUpdatesAutomatically = !appIsActive && !highAccuracyNeeded
+            if !locationUpdatesActive {
+                manager.startUpdatingLocation()
+                locationUpdatesActive = true
+            }
+        } else {
+            stopLocationUpdatesIfNeeded()
+        }
+
+        if cameraNavigationActive && appIsActive {
+            manager.headingFilter = 5
+            if !headingUpdatesActive {
+                manager.startUpdatingHeading()
+                headingUpdatesActive = true
+            }
+        } else {
+            stopHeadingUpdatesIfNeeded()
+        }
+    }
+
+    private func stopLocationUpdatesIfNeeded() {
+        guard locationUpdatesActive else { return }
+        manager.stopUpdatingLocation()
+        locationUpdatesActive = false
+    }
+
+    private func stopHeadingUpdatesIfNeeded() {
+        guard headingUpdatesActive else { return }
+        manager.stopUpdatingHeading()
+        headingUpdatesActive = false
     }
 
     func startRecording() {
@@ -35,10 +115,12 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         lastRecorded = nil
         recordStartedAt = Date()
         recording = true
+        refreshActivityProfile()
     }
 
     func stopRecording() -> Trip? {
         recording = false
+        refreshActivityProfile()
         guard let start = recordStartedAt, recordedPoints.count >= 2 else {
             recordStartedAt = nil
             return nil
@@ -51,10 +133,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
-        if authorization == .authorizedWhenInUse || authorization == .authorizedAlways {
-            manager.startUpdatingLocation()
-            manager.startUpdatingHeading()
-        }
+        refreshActivityProfile()
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

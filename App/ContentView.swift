@@ -52,6 +52,7 @@ struct ContentView: View {
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("wijhati.voiceVolume") private var voiceVolume: Double = 1.0
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
@@ -177,6 +178,7 @@ struct ContentView: View {
                 styleKind: styleKind,
                 show3D: show3D,
                 followUser: followUser,
+                isAppActive: scenePhase == .active,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
                 bearingRequest: nil,
@@ -255,6 +257,7 @@ struct ContentView: View {
             if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
         }
         .onAppear {
+            locationService.setAppActive(scenePhase == .active)
             locationService.request()
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
@@ -290,6 +293,16 @@ struct ContentView: View {
                 pendingCenterOnUser = false
                 showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            locationService.setAppActive(phase == .active)
+        }
+        .onChange(of: voice.active) { _, active in
+            locationService.setNavigationActive(active)
+            followUser = active
+        }
+        .onChange(of: showAR) { _, active in
+            locationService.setCameraNavigationActive(active)
         }
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)

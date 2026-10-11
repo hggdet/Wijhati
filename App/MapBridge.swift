@@ -255,6 +255,7 @@ struct MapBridge: UIViewRepresentable {
     var styleKind: MapStyleKind
     var show3D: Bool
     var followUser: Bool
+    var isAppActive: Bool
     var userLocation: CLLocationCoordinate2D?
     var centerRequest: CenterRequest?
     var bearingRequest: BearingRequest?
@@ -270,8 +271,8 @@ struct MapBridge: UIViewRepresentable {
         map.delegate = context.coordinator
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
-        map.showsUserLocation = true
-        map.prefetchesTiles = true
+        map.showsUserLocation = isAppActive
+        map.prefetchesTiles = isAppActive && followUser
         map.compassView.isHidden = true
         map.logoView.isHidden = true
         map.attributionButton.isHidden = true
@@ -306,11 +307,19 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.styleReady = false
             map.styleURL = styleKind.url ?? MapStyleKind.standard.url
         }
+        let shouldShowUserLocation = isAppActive
+        if map.showsUserLocation != shouldShowUserLocation {
+            map.showsUserLocation = shouldShowUserLocation
+        }
+        let shouldPrefetchTiles = isAppActive && followUser
+        if map.prefetchesTiles != shouldPrefetchTiles {
+            map.prefetchesTiles = shouldPrefetchTiles
+        }
         if let ul = userLocation, !context.coordinator.didCenterOnUser {
             context.coordinator.didCenterOnUser = true
             map.setCenter(ul, zoomLevel: 13, animated: false)
         }
-        if followUser {
+        if isAppActive && followUser {
             if map.userTrackingMode != .followWithHeading { map.userTrackingMode = .followWithHeading }
         } else if map.userTrackingMode != .none {
             map.userTrackingMode = .none
