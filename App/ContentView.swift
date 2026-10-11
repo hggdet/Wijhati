@@ -525,8 +525,8 @@ struct ContentView: View {
         HStack {
             VStack(alignment: .leading, spacing: 10) {
                 Button { centerOnMyLocation() } label: {
-                    mapToolLabel(icon: "location.fill", title: "موقعي".loc,
-                                 tint: Color(red: 0.04, green: 0.62, blue: 0.49))
+                    mapToolCircle(icon: "location.fill",
+                                  tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                 }
                 .buttonStyle(MapControlPressStyle())
                 .accessibilityLabel("موقعي".loc)
@@ -539,8 +539,8 @@ struct ContentView: View {
                         .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
                 } else {
                     Button { openMapSearch() } label: {
-                        mapToolLabel(icon: "magnifyingglass", title: "بحث".loc,
-                                     tint: Color(red: 0.35, green: 0.48, blue: 0.62))
+                        mapToolCircle(icon: "magnifyingglass",
+                                      tint: Color(red: 0.35, green: 0.48, blue: 0.62))
                     }
                     .buttonStyle(MapControlPressStyle())
                     .accessibilityLabel("بحث".loc)
@@ -554,21 +554,14 @@ struct ContentView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: showSearch)
     }
 
-    private func mapToolLabel(icon: String, title: String, tint: Color) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(tint)
-                .contentTransition(.symbolEffect(.replace))
-            Text(title)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(adaptiveInk)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(width: verticalSizeClass == .compact ? 52 : 58,
-               height: verticalSizeClass == .compact ? 52 : 58)
-        .glass(cornerRadius: verticalSizeClass == .compact ? 15 : 17)
+    private func mapToolCircle(icon: String, tint: Color) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(tint)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: verticalSizeClass == .compact ? 52 : 58,
+                   height: verticalSizeClass == .compact ? 52 : 58)
+            .glassCircle()
     }
 
     private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {

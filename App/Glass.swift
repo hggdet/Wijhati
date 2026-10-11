@@ -50,6 +50,34 @@ extension View {
     func glass(cornerRadius: CGFloat = 24) -> some View {
         modifier(GlassModifier(cornerRadius: cornerRadius))
     }
+
+    func glassCircle() -> some View {
+        modifier(CircularGlassModifier())
+    }
+}
+
+struct CircularGlassModifier: ViewModifier {
+    @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        if glassLevel < 0.03 {
+            content
+                .background(scheme == .dark ? Color(red: 0.11, green: 0.11, blue: 0.12) : Color.white,
+                            in: Circle())
+                .overlay(Circle().strokeBorder(.black.opacity(0.07), lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+        } else if #available(iOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(.white.opacity(1 - glassLevel * 0.85)).interactive(),
+                             in: Circle())
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().fill(.white.opacity((1 - glassLevel) * 0.64)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.4), lineWidth: 1))
+        }
+    }
 }
 
 /// Compact glass chip used for the category strip.
