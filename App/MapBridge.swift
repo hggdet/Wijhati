@@ -268,6 +268,7 @@ struct MapBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         map.showsUserLocation = true
         map.prefetchesTiles = true
@@ -349,15 +350,28 @@ struct MapBridge: UIViewRepresentable {
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
         var was3DOn = false
+        private var didEnterBackground = false
+        @objc func appEnteredBackground() {
+            didEnterBackground = true
+        }
+
         @objc func appBecameActive() {
-            guard let map else { return }
-            // Came back from the background with no live style (its local
-            // file was purged, or the GL surface returned empty): reload.
-            if map.style == nil {
-                map.styleURL = parent.styleKind.url
-            } else if let u = map.styleURL, u.isFileURL,
-                      !FileManager.default.fileExists(atPath: u.path) {
-                map.styleURL = parent.styleKind.url
+            guard didEnterBackground, let map else { return }
+            didEnterBackground = false
+            // MapLibre's GL surface can resume with a stale frame while a
+            // non-nil style is still attached. Rebuild the style after the
+            // app is active so tiles, route layers and annotations repaint.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak map] in
+                guard let self, let map, map.window != nil else { return }
+                map.setNeedsLayout()
+                map.layoutIfNeeded()
+                map.delegate = self
+                self.styleReady = false
+                self.lastLayerSignature = ""
+                self.failedStyle = nil
+                self.currentStyle = self.parent.styleKind
+                map.styleURL = self.parent.styleKind.url ?? MapStyleKind.standard.url
+                map.setNeedsDisplay()
             }
         }
 
