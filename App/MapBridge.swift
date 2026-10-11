@@ -31,6 +31,23 @@ enum MapStyleKind: String, CaseIterable {
         case .mtPastel: return Self.patchedStyleFile("mtpastel3") ?? Self.maptilerPastelRemoteURL
         }
     }
+    /// The unpatched remote equivalent of each style, used by the
+    /// watchdog when the local patched copy will not load.
+    var remoteURL: URL? {
+        switch self {
+        case .standard: return URL(string: "https://tiles.openfreemap.org/styles/liberty")
+        case .pastel: return URL(string: "https://tiles.openfreemap.org/styles/positron")
+        case .bright: return URL(string: "https://tiles.openfreemap.org/styles/positron")
+        case .ofmBright: return URL(string: "https://tiles.openfreemap.org/styles/bright")
+        case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
+        case .ofmDark: return URL(string: "https://tiles.openfreemap.org/styles/dark")
+        case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
+        case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
+        case .maptiler: return Self.maptilerRemoteURL
+        case .mtPastel: return Self.maptilerPastelRemoteURL
+        }
+    }
+
     var isRaster: Bool { self == .cartoon || self == .satellite }
 
     /// The user's free MapTiler API key (Settings ← Map). Empty = the
@@ -234,6 +251,19 @@ enum MapStyleKind: String, CaseIterable {
 
 }
 
+/// One-line health log for the map, shown in Settings → About so a
+/// single screenshot reveals what the map actually did.
+enum MapHealth {
+    static func log(_ event: String) {
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm:ss"
+        let line = "\(df.string(from: Date())) \(event)"
+        let old = UserDefaults.standard.string(forKey: "wijhati.health.log") ?? ""
+        let parts = (line + " ؛ " + old).split(separator: "؛").prefix(3)
+        UserDefaults.standard.set(parts.joined(separator: " ؛ "), forKey: "wijhati.health.log")
+    }
+}
+
 struct BearingRequest: Equatable {
     var degrees: Double
     var id: UUID = UUID()
@@ -297,6 +327,7 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.styleReady = false
             map.styleURL = fresh
         }
+        context.coordinator.armWatchdog(stage: 0)
         return map
     }
 
@@ -361,6 +392,7 @@ struct MapBridge: UIViewRepresentable {
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
         var was3DOn = false
+        var watchdog: DispatchWorkItem?
         private var didEnterBackground = false
         private var resumeScheduled = false
         @objc func appEnteredBackground() {
@@ -379,9 +411,31 @@ struct MapBridge: UIViewRepresentable {
             }
         }
 
+        /// Second line of defence behind the resume rebuild: if the
+        /// style still is not ready 6 s later, reload it from the
+        /// remote source; 6 s after that, fall back to standard.
+        func armWatchdog(stage: Int) {
+            watchdog?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let map = self.map, !self.styleReady else { return }
+                if stage == 0 {
+                    MapHealth.log("الحارس: إعادة تحميل الستايل من النت")
+                    map.styleURL = self.parent.styleKind.remoteURL ?? self.parent.styleKind.url
+                    self.armWatchdog(stage: 1)
+                } else {
+                    MapHealth.log("الحارس: تحويل للستايل القياسي")
+                    self.currentStyle = .standard
+                    map.styleURL = MapStyleKind.standard.url
+                }
+            }
+            watchdog = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+        }
+
         @objc func appBecameActive() {
             guard didEnterBackground, !resumeScheduled, map != nil else { return }
             resumeScheduled = true
+            MapHealth.log("رجوع للواجهة: إعادة بناء الستايل")
             // MapLibre's GL surface can resume with a stale frame while a
             // non-nil style is still attached. Rebuild the style after the
             // app is active so tiles, route layers and annotations repaint.
@@ -402,6 +456,7 @@ struct MapBridge: UIViewRepresentable {
                 self.currentStyle = self.parent.styleKind
                 map.styleURL = self.parent.styleKind.url ?? MapStyleKind.standard.url
                 map.setNeedsDisplay()
+                self.armWatchdog(stage: 0)
             }
         }
 
@@ -417,6 +472,7 @@ struct MapBridge: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, didFailLoading style: MLNStyle, withError error: Error) {
+            MapHealth.log("خطأ تحميل: \(error.localizedDescription.prefix(60))")
             // Remember the failure: without this, updateUIView keeps
             // re-applying the broken style on every location update and
             // the map reloads forever.
@@ -438,6 +494,7 @@ struct MapBridge: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
             failedStyle = nil
             styleReady = true
+            watchdog?.cancel()
             lastLayerSignature = ""
             refreshLayers(style: style)
         }
