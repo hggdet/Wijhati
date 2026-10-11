@@ -78,7 +78,6 @@ struct ContentView: View {
     @State private var showSaved = false
     @State private var showSettings = false
     @AppStorage("wijhati.show3D") private var show3D = true
-    @AppStorage("wijhati.health.log") private var healthLog = "" 
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
     @State private var showDirections = false
@@ -245,11 +244,14 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
                     .environment(\.layoutDirection, .leftToRight)
-                    bottomStack
+                    if selected != nil || selectedRoute != nil || !stops.isEmpty || routeNotice != nil {
+                        bottomStack
+                    }
                 } else {
                     Spacer(minLength: 0)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .padding(.horizontal, 10)
             .padding(.top, 6)
             .padding(.bottom, 8)
@@ -1450,7 +1452,7 @@ struct ContentView: View {
                 Label("ابحث عن أي مكان من شريط البحث — الاقتراحات تظهر ويا المسافة لكل نتيجة".loc, systemImage: "magnifyingglass")
                 Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان".loc, systemImage: "mappin.and.ellipse")
                 Label("اسحب بطاقة المكان للأعلى حتى تشوف العنوان الكامل والإحداثيات".loc, systemImage: "square.and.arrow.up.on.square")
-                Label("زر الموقع: ضغطة واحدة تقرّب الكاميرا على موقعك الحالي".loc, systemImage: "location.fill")
+                Label("زر الموقع: ضغطة تركّز عليك، الثانية بوصلة باتجاه وجهتك، الثالثة أبنية ثلاثية الأبعاد".loc, systemImage: "location.fill")
                 Label("من الإعدادات ← «الخريطة» شريط «مصمت — زجاجي» يتحكم بشفافية واجهة التطبيق مثلما تتحكم بالصوت".loc, systemImage: "slider.horizontal.3")
                 Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»".loc, systemImage: "waveform")
                 Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة".loc, systemImage: "house.fill")
@@ -1523,12 +1525,11 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.62").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.61").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
                     .font(.caption2).foregroundStyle(.secondary)
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
-                HStack { Text("حالة الخريطة".loc); Spacer(); Text(healthLog.isEmpty ? "—" : healthLog).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
             }
             Section {
