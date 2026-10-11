@@ -3,17 +3,7 @@ import CoreLocation
 import UIKit
 import WidgetKit
 
-private struct MapControlPressStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
-            .opacity(configuration.isPressed ? 0.88 : 1)
-            .animation(reduceMotion ? nil : .spring(response: 0.24, dampingFraction: 0.56),
-                       value: configuration.isPressed)
-    }
-}
+private typealias MapControlPressStyle = AppPressStyle
 
 
 struct Category: Identifiable {
@@ -116,6 +106,7 @@ struct ContentView: View {
     @State private var pendingQuickRoute = false
     @State private var pendingInitialLocationCenter = true
     @State private var lastStartupCenterTimestamp: Date?
+    @State private var showIntro = true
     @State private var pendingCenterOnUser = false
     @State private var locationNotice: String?
     @State private var placeSheetFull = false
@@ -143,11 +134,11 @@ struct ContentView: View {
 
     private func syncStyleToScheme() {
         if effectiveDark {
-            if styleKind != .dark, styleKind != .ofmDark {
+            if styleKind != .dark && styleKind != .ofmDark {
                 lastLightStyle = styleKind.rawValue
-                styleKind = .dark
-                autoDark = true
             }
+            styleKind = .ofmDark
+            autoDark = true
         } else if autoDark {
             styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .mtPastel
             autoDark = false
@@ -249,6 +240,13 @@ struct ContentView: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showSearch)
 
             if voice.active { pocketOverlay }
+            if showIntro {
+                WorldIntroView {
+                    withAnimation(.easeInOut(duration: 0.32)) { showIntro = false }
+                }
+                .transition(.opacity)
+                .zIndex(20)
+            }
         }
     }
 
@@ -366,6 +364,7 @@ struct ContentView: View {
                 openQuickPlace(place)
             }
             if url.host == "setup" {
+                showIntro = false
                 showSettings = true
             }
         }
@@ -463,7 +462,7 @@ struct ContentView: View {
                     Image(systemName: weatherSymbol(for: localWeather?.weatherCode))
                         .font(.system(size: 15, weight: .medium))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(adaptiveSecondaryInk)
                         .symbolEffect(.pulse, value: showWeatherDetail)
                     Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -493,6 +492,7 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 17, weight: .bold))
+                    .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(adaptiveInk)
                     .frame(width: 44, height: 44)
             }
@@ -559,6 +559,7 @@ struct ContentView: View {
     private func mapToolCircle(icon: String, tint: Color) -> some View {
         Image(systemName: icon)
             .font(.system(size: 20, weight: .semibold))
+            .symbolRenderingMode(.hierarchical)
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: verticalSizeClass == .compact ? 52 : 58,
@@ -571,9 +572,9 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("الطقس عند موقعك".loc).font(.caption.weight(.bold))
                 Text("\(displayTemp(w.temperature)) • \(w.label)").font(.subheadline.weight(.medium))
-                Text("🌅 شروق \(w.sunrise) • 🌇 غروب \(w.sunset)").font(.caption2).foregroundStyle(.secondary)
+                Text("🌅 شروق \(w.sunrise) • 🌇 غروب \(w.sunset)").font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 Text("\("الوحدة من الإعدادات".loc) ⚙️: \(tempUnit == "f" ? "فهرنهايت".loc : "سيليزية".loc)")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
             }
             .padding(12)
             .glass(cornerRadius: 18)
@@ -708,11 +709,11 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("جاري حساب المسار".loc).font(.caption.weight(.bold))
                 if let place = selected {
-                    Text("إلى".loc + " \(place.name)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text("إلى".loc + " \(place.name)").font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
-            Text(transport.label).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Text(transport.label).font(.caption2.weight(.semibold)).foregroundStyle(adaptiveSecondaryInk)
         }
         .padding(.horizontal, 13).padding(.vertical, 9)
         .glass(cornerRadius: 17)
@@ -725,7 +726,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: routeFailed ? "exclamationmark.triangle.fill" : "info.circle.fill")
-                    .foregroundStyle(routeFailed ? Color.orange : Color.secondary)
+                    .foregroundStyle(routeFailed ? Color.orange : adaptiveSecondaryInk)
                 Text(message)
                     .font(.caption.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
@@ -780,7 +781,7 @@ struct ContentView: View {
             if searching || suggestionSearching { ProgressView().controlSize(.small) }
             if !query.isEmpty {
                 Button { query = ""; suggestions = [] } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(adaptiveSecondaryInk)
                 }
                 .buttonStyle(.plain)
             }
@@ -792,7 +793,7 @@ struct ContentView: View {
                 }
             } label: {
                 Image(systemName: voiceSearch.isListening ? "mic.fill" : "mic")
-                    .foregroundStyle(voiceSearch.isListening ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(voiceSearch.isListening ? AnyShapeStyle(.red) : AnyShapeStyle(adaptiveSecondaryInk))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(voiceSearch.isListening ? "إيقاف الإملاء".loc : "البحث بالصوت".loc)
@@ -800,7 +801,7 @@ struct ContentView: View {
                 Button {
                     closeMapSearch()
                 } label: {
-                    Image(systemName: "checkmark").foregroundStyle(.secondary)
+                    Image(systemName: "checkmark").foregroundStyle(adaptiveSecondaryInk)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("تم".loc)
@@ -819,7 +820,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("أماكنك المحفوظة".loc)
-                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    .font(.caption.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.top, 9).padding(.bottom, 3)
@@ -832,7 +833,7 @@ struct ContentView: View {
                         Spacer()
                         if let loc = locationService.location {
                             Text(fmtDist(loc.distance(from: CLLocation(latitude: saved.place.latitude, longitude: saved.place.longitude))))
-                                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                                .font(.caption2.weight(.medium)).foregroundStyle(adaptiveSecondaryInk)
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -849,7 +850,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("الأخيرة".loc)
-                    .font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    .font(.caption.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
                 Spacer()
                 Button("مسح الكل".loc) { historyStore.clear() }
                     .font(.caption2.weight(.bold))
@@ -858,17 +859,17 @@ struct ContentView: View {
             ForEach(historyStore.items) { place in
                 Button { select(place) } label: {
                     HStack(spacing: 9) {
-                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary).font(.system(size: 16))
+                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(adaptiveSecondaryInk).font(.system(size: 16))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                             if !place.address.isEmpty {
-                                Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Text(place.address).font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                             }
                         }
                         Spacer()
                         if let loc = locationService.location {
                             Text(fmtDist(loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))))
-                                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                                .font(.caption2.weight(.medium)).foregroundStyle(adaptiveSecondaryInk)
                         }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -892,13 +893,13 @@ struct ContentView: View {
                                 Text(place.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
                                 let sub = [place.kind, place.address.isEmpty ? nil : place.address].compactMap { $0 }.joined(separator: " • ")
                                 if !sub.isEmpty {
-                                    Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(sub).font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                                 }
                             }
                             Spacer()
                             if let loc = locationService.location {
                                 Text(fmtDist(loc.distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))))
-                                    .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                                    .font(.caption2.weight(.medium)).foregroundStyle(adaptiveSecondaryInk)
                             }
                         }
                         .padding(.horizontal, 12).padding(.vertical, 9)
@@ -922,7 +923,7 @@ struct ContentView: View {
                     HStack(spacing: 4) {
                         Text(stop.name).font(.caption).lineLimit(1)
                         Button { stops.removeAll { $0.id == stop.id }; Task { await computeRoute() } } label: {
-                            Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.secondary)
+                            Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(adaptiveSecondaryInk)
                         }
                     }
                     .padding(.horizontal, 8).padding(.vertical, 5)
@@ -947,14 +948,14 @@ struct ContentView: View {
 
     private func routeBar(_ route: RouteData) -> some View {
         VStack(spacing: verticalSizeClass == .compact ? 6 : 10) {
-            Capsule().fill(Color.secondary.opacity(0.34)).frame(width: 38, height: 5)
+            Capsule().fill(adaptiveSecondaryInk.opacity(0.34)).frame(width: 38, height: 5)
 
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("إلى".loc + " \(selected?.name ?? "وجهتك".loc)")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
+                        .font(.caption.weight(.semibold)).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                     Text("الوصول المتوقع".loc)
-                        .font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        .font(.caption2.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
                     Text(expectedArrival(route.duration))
                         .font(verticalSizeClass == .compact ? .headline.weight(.heavy) : .title2.weight(.heavy))
                         .foregroundStyle(adaptiveInk)
@@ -966,7 +967,7 @@ struct ContentView: View {
                 Button { clearRoute() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(adaptiveSecondaryInk)
                         .frame(width: 30, height: 30)
                         .background(Color.white.opacity(0.42), in: Circle())
                 }
@@ -975,7 +976,7 @@ struct ContentView: View {
 
             HStack(spacing: 8) {
                 Label(fmtDist(route.distance), systemImage: "arrow.left.and.right")
-                Circle().fill(Color.secondary.opacity(0.45)).frame(width: 3, height: 3)
+                Circle().fill(adaptiveSecondaryInk.opacity(0.45)).frame(width: 3, height: 3)
                 Label(formatDuration(route.duration), systemImage: "clock")
                 Spacer(minLength: 4)
                 Button {
@@ -1047,10 +1048,10 @@ struct ContentView: View {
 
             if !elevations.isEmpty, verticalSizeClass != .compact {
                 HStack(spacing: 6) {
-                    Image(systemName: "mountain.2").foregroundStyle(.secondary)
+                    Image(systemName: "mountain.2").foregroundStyle(adaptiveSecondaryInk)
                     ElevationChart(values: elevations).frame(height: 22)
                     Text("▲ \(Int(elevations.max() ?? 0)) \("م".loc)")
-                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                        .font(.caption2.weight(.medium)).foregroundStyle(adaptiveSecondaryInk)
                 }
             }
         }
@@ -1085,7 +1086,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             // Apple Maps-style grabber: drag the card up for full details.
             HStack { Spacer()
-                Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 36, height: 5)
+                Capsule().fill(adaptiveSecondaryInk.opacity(0.4)).frame(width: 36, height: 5)
                 Spacer() }
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -1099,13 +1100,13 @@ struct ContentView: View {
                         }
                         if let kind = place.kind {
                             Text(kind)
-                                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                                .font(.caption2.weight(.semibold)).foregroundStyle(adaptiveSecondaryInk)
                                 .padding(.horizontal, 7).padding(.vertical, 3)
                                 .background(Color.white.opacity(0.12), in: Capsule())
                         }
                     }
                     if !place.address.isEmpty {
-                        Text(place.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(place.address).font(.caption).foregroundStyle(adaptiveSecondaryInk).lineLimit(2)
                     }
                     HStack(spacing: 5) {
                         if let loc = locationService.location {
@@ -1116,14 +1117,14 @@ struct ContentView: View {
                             Text("• \(displayTemp(w.temperature)) \(w.label)")
                         }
                     }
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 }
                 Spacer()
                 Button { self.selected = nil } label: {
                     Image(systemName: "xmark").font(.caption.weight(.bold))
                         .frame(width: 28, height: 28)
                         .background(Color.white.opacity(0.12), in: Circle())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(adaptiveSecondaryInk)
                 }
             }
             HStack(spacing: 7) {
@@ -1162,18 +1163,18 @@ struct ContentView: View {
                     if let photo = placeDetails?.photoURL {
                         AsyncImage(url: photo) { img in
                             img.resizable().scaledToFill()
-                        } placeholder: { Color.secondary.opacity(0.15) }
+                        } placeholder: { adaptiveSecondaryInk.opacity(0.15) }
                         .frame(height: 130).frame(maxWidth: .infinity)
                         .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     if let d = placeDetails {
                         if let hours = d.openingHours {
                             HStack(spacing: 6) {
-                                Circle().fill(d.isOpenNow == true ? Color.green : (d.isOpenNow == false ? Color.red : Color.secondary))
+                                Circle().fill(d.isOpenNow == true ? Color.green : (d.isOpenNow == false ? Color.red : adaptiveSecondaryInk))
                                     .frame(width: 8, height: 8)
                                 Text(d.isOpenNow == true ? "مفتوح الآن".loc : (d.isOpenNow == false ? "مغلق الآن".loc : "ساعات الدوام".loc))
                                     .font(.caption.weight(.semibold))
-                                Text(hours).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                Text(hours).font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                             }
                         }
                         if let phone = d.phone, let url = URL(string: "tel://\(phone.filter { $0.isNumber || $0 == "+" })") {
@@ -1189,12 +1190,12 @@ struct ContentView: View {
                     }
                     if !place.address.isEmpty {
                         Label(place.address, systemImage: "signpost.right.and.left")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     }
                     HStack(spacing: 6) {
-                        Image(systemName: "location.viewfinder").font(.caption2).foregroundStyle(.secondary)
+                        Image(systemName: "location.viewfinder").font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                         Text(String(format: "%.5f, %.5f", place.latitude, place.longitude))
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                         Spacer()
                         Button {
                             UIPasteboard.general.string = String(format: "%.5f, %.5f", place.latitude, place.longitude)
@@ -1335,7 +1336,7 @@ struct ContentView: View {
                     quickPlaceRow(title: "الشغل".loc, icon: "briefcase.fill", place: workPlace, key: "wijhati.workPlace", isHome: false)
                 }
                 if store.places.isEmpty {
-                    Text("لا توجد أماكن محفوظة بعد".loc).foregroundStyle(.secondary)
+                    Text("لا توجد أماكن محفوظة بعد".loc).foregroundStyle(adaptiveSecondaryInk)
                 }
                 ForEach(store.places) { saved in
                     Button {
@@ -1348,7 +1349,7 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(saved.place.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                                 if !saved.place.address.isEmpty {
-                                    Text(saved.place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(saved.place.address).font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                                 }
                             }
                         }
@@ -1472,12 +1473,12 @@ struct ContentView: View {
                         Text("شريط التحكم بالزجاج".loc)
                         Spacer()
                         Text("\(Int(glassLevel * 100))٪")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     }
                     HStack(spacing: 8) {
-                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
                         Slider(value: $glassLevel, in: 0...1)
-                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
                     }
                 }
                 .padding(.vertical, 4)
@@ -1524,27 +1525,27 @@ struct ContentView: View {
             Section("أسئلة شائعة".loc) {
                 DisclosureGroup("ليش بعض أسماء الأماكن خطأ أو ناقصة؟".loc) {
                     Text("بيانات الخريطة من OpenStreetMap ويحرّرها متطوعون حول العالم. وجهتي يعرض الاسم العربي متى ما توفّر، وبعض الأخطاء من المصدر نفسه وتتصلح بتحديثات البيانات.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أبدّل نمط الخريطة؟".loc) {
                     Text("من الإعدادات ← «الخريطة» تختار النمط (قياسية، فاتحة، زاهية، ليلي، داكن، قمر صناعي) وتفعّل الأبنية ثلاثية الأبعاد.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("هل يشتغل التطبيق بدون إنترنت؟".loc) {
                     Text("بعد تنزيل منطقة من «خرائط بدون إنترنت» تقدر تتصفح خريطتها بدون نت. البحث وحساب المسارات والطقس يحتاجون اتصالاً.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أضيف مكاناً مو موجود بالخريطة؟".loc) {
                     Text("افتح أي مكان قريب واضغط «نشر محلي» من بطاقته، أو ثبّت دبوساً بضغطة مطوّلة وانشر المكان من بطاقته — يظهر عندك وبالمجتمع.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أوصل للبيت أو الشغل بسرعة؟".loc) {
                     Text("ثبّتهما أول مرة من «أماكني المحفوظة» ← البيت/الشغل، وبعدها الاتجاهات بضغطة وحدة من نفس الصفحة أو من ودجت الشاشة الرئيسية.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("ليش ما تغيّر وقت المسار بين السيارة والمشي؟".loc) {
                     Text("كل نمط يُحسب من خادم مختلف. إذا تعذّر حساب نمط معيّن يطلع لك تنبيه برتقالي — تأكد من اتصالك وجرّب مرة ثانية.".loc)
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
             }
             Section("تواصل ومشاركة".loc) {
@@ -1558,11 +1559,11 @@ struct ContentView: View {
             Section {
                 VStack(spacing: 4) {
                     Text("من تطوير".loc)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     Text("عبدالباسط خضير".loc)
                         .font(.headline)
                     Text("© 2026 عبدالباسط خضير — جميع الحقوق محفوظة".loc)
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 }
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
@@ -1581,23 +1582,23 @@ struct ContentView: View {
                         Image(systemName: "mappin.circle.fill")
                             .font(.system(size: 54)).foregroundStyle(.pink)
                         Text("وجهتي — Wijhati").font(.title3.weight(.bold))
-                        Text("خرائط وملاحة عربية للعالم كله".loc).font(.caption).foregroundStyle(.secondary)
+                        Text("خرائط وملاحة عربية للعالم كله".loc).font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     }
                     Spacer()
                 }
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.61").foregroundStyle(.secondary) }
-                HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.61").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
-                    .font(.caption2).foregroundStyle(.secondary)
-                HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
-                HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(adaptiveSecondaryInk) }
             }
             Section {
                 Text("وجهتي تطبيق خرائط عالمي بواجهة عربية زجاجية أنيقة: بحث فوري، مسارات بديلة، أنماط خرائط متعددة، أبنية ثلاثية الأبعاد، وملاحة صوتية تعمل والهاتف في جيبك.".loc)
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(adaptiveSecondaryInk)
             }
         }
         .navigationTitle("حول وجهتي".loc)
@@ -1652,14 +1653,14 @@ struct ContentView: View {
             }
             Section {
                 if offlineManager.infos.isEmpty {
-                    Text("لا توجد مناطق محمّلة بعد".loc).foregroundStyle(.secondary)
+                    Text("لا توجد مناطق محمّلة بعد".loc).foregroundStyle(adaptiveSecondaryInk)
                 }
                 ForEach(offlineManager.infos) { info in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(info.name).font(.subheadline.weight(.medium))
                             Text("\(info.stateText) • \(info.sizeText)")
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                         }
                         Spacer()
                         Button(role: .destructive) { offlineManager.delete(info) } label: {
@@ -1698,12 +1699,12 @@ struct ContentView: View {
         Form {
             Section("موقعك الحالي".loc) {
                 if let loc = locationService.location {
-                    HStack { Text("خط العرض".loc); Spacer(); Text(String(format: "%.5f", loc.coordinate.latitude)).foregroundStyle(.secondary) }
-                    HStack { Text("خط الطول".loc); Spacer(); Text(String(format: "%.5f", loc.coordinate.longitude)).foregroundStyle(.secondary) }
-                    HStack { Text("الدقة".loc); Spacer(); Text("\(Int(loc.horizontalAccuracy)) م").foregroundStyle(.secondary) }
+                    HStack { Text("خط العرض".loc); Spacer(); Text(String(format: "%.5f", loc.coordinate.latitude)).foregroundStyle(adaptiveSecondaryInk) }
+                    HStack { Text("خط الطول".loc); Spacer(); Text(String(format: "%.5f", loc.coordinate.longitude)).foregroundStyle(adaptiveSecondaryInk) }
+                    HStack { Text("الدقة".loc); Spacer(); Text("\(Int(loc.horizontalAccuracy)) م").foregroundStyle(adaptiveSecondaryInk) }
                 } else {
                     Text("فعّل خدمات الموقع حتى يظهر موقعك هنا".loc)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(adaptiveSecondaryInk)
                 }
             }
             Section {
@@ -1767,7 +1768,7 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(info.name)
                                 Text("\(info.language) • \(qualityLabel(info.quality))")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                             }
                             Spacer()
                             if voiceID == info.id {
@@ -1797,7 +1798,7 @@ struct ContentView: View {
             }
             Section {
                 Text("لأصوات عربية إضافية بجودة أعلى، حمّلها من إعدادات الآيفون ← إمكانية الوصول ← المحتوى المنطوق ← الأصوات ← العربية، وستظهر هنا تلقائياً.".loc)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
             }
         }
         .navigationTitle("اختيار الصوت".loc)
@@ -1819,7 +1820,7 @@ struct ContentView: View {
                         Text("صوت المرشد".loc)
                         Spacer()
                         Text("\(Int(voiceVolume * 100))٪")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     }
                     Slider(value: $voiceVolume, in: 0...1) { editing in
                         if !editing { voice.announce("صوت المرشد") }
@@ -1939,6 +1940,7 @@ struct ContentView: View {
     }
 
     private func openQuickPlace(_ place: Place) {
+        showIntro = false
         select(place)
         if locationService.location != nil {
             Task { await computeRoute() }
@@ -2186,7 +2188,7 @@ extension ContentView {
             HStack {
                 Image(systemName: icon).foregroundStyle(adaptiveInk)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.caption).foregroundStyle(.secondary)
+                    Text(title).font(.caption).foregroundStyle(adaptiveSecondaryInk)
                     Text(place.name).font(.subheadline.weight(.medium)).lineLimit(1)
                 }
                 Spacer()
@@ -2253,7 +2255,7 @@ struct AddPlaceSheet: View {
                     Text(Backend.isConfigured
                          ? "ينشر لكل مستخدمي وجهتي وينحفظ بجهازك.".loc
                          : "ينحفظ بجهازك هسه، وينشر للكل من يشتغل السيرفر المشترك.".loc)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                 }
             }
             .navigationTitle("نشر مكان محلي".loc)

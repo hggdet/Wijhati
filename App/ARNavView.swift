@@ -10,6 +10,7 @@ struct ARNavView: View {
     var distance: Double
     @Environment(\.dismiss) private var dismiss
     @State private var cameraDenied = false
+    @State private var cameraReady = false
 
     private var bearing: Double {
         guard let loc = locationService.location else { return 0 }
@@ -34,8 +35,11 @@ struct ARNavView: View {
                 Color.black.ignoresSafeArea()
                 Text("فعّل الكاميرا من إعدادات النظام حتى تشتغل الملاحة بالكاميرا.".loc)
                     .foregroundStyle(.white).multilineTextAlignment(.center).padding(30)
-            } else {
+            } else if cameraReady {
                 CameraPreview().ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
+                ProgressView().tint(.white).scaleEffect(1.15)
             }
             VStack {
                 HStack {
@@ -63,7 +67,7 @@ struct ARNavView: View {
                 VStack(spacing: 4) {
                     Text(instruction).font(.headline).multilineTextAlignment(.center)
                     Text(distance < 1000 ? "\(Int(distance.rounded())) \("م".loc)" : String(format: "%.1f %@", distance / 1000, "كم".loc))
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.white.opacity(0.78))
                 }
                 .foregroundStyle(.white)
                 .padding(14)
@@ -73,12 +77,16 @@ struct ARNavView: View {
         }
         .task {
             switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                cameraReady = true
             case .notDetermined:
-                cameraDenied = !(await AVCaptureDevice.requestAccess(for: .video))
+                let granted = await AVCaptureDevice.requestAccess(for: .video)
+                cameraDenied = !granted
+                cameraReady = granted
             case .denied, .restricted:
                 cameraDenied = true
-            default:
-                break
+            @unknown default:
+                cameraDenied = true
             }
         }
     }
@@ -91,25 +99,45 @@ private struct CameraPreview: UIViewRepresentable {
 
     final class PreviewView: UIView {
         private let session = AVCaptureSession()
+        private let sessionQueue = DispatchQueue(label: "com.wijhati.camera-preview")
         private var started = false
         override init(frame: CGRect) {
             super.init(frame: frame)
+            (layer as? AVCaptureVideoPreviewLayer)?.videoGravity = .resizeAspectFill
             start()
         }
-        required init?(coder: NSCoder) { super.init(coder: coder); start() }
-        private func start() {
-            guard !started,
-                  let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-                  let input = try? AVCaptureDeviceInput(device: device),
-                  session.canAddInput(input) else { return }
-            started = true
-            session.addInput(input)
-            (layer as? AVCaptureVideoPreviewLayer)?.session = session
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
             (layer as? AVCaptureVideoPreviewLayer)?.videoGravity = .resizeAspectFill
-            DispatchQueue.global(qos: .userInitiated).async { [session] in session.startRunning() }
+            start()
+        }
+        private func start() {
+            guard !started else { return }
+            started = true
+            sessionQueue.async { [weak self] in
+                guard let self,
+                      let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                      let input = try? AVCaptureDeviceInput(device: device),
+                      self.session.canAddInput(input) else {
+                    DispatchQueue.main.async { [weak self] in self?.started = false }
+                    return
+                }
+                self.session.beginConfiguration()
+                if self.session.canSetSessionPreset(.high) { self.session.sessionPreset = .high }
+                self.session.addInput(input)
+                self.session.commitConfiguration()
+                self.session.startRunning()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let previewLayer = self.layer as? AVCaptureVideoPreviewLayer else { return }
+                    previewLayer.videoGravity = .resizeAspectFill
+                    previewLayer.session = self.session
+                }
+            }
         }
         func stop() {
-            if session.isRunning { session.stopRunning() }
+            sessionQueue.async { [session] in
+                if session.isRunning { session.stopRunning() }
+            }
         }
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     }

@@ -34,7 +34,7 @@ struct AssistantView: View {
                                         Text(msg.text)
                                             .font(.subheadline)
                                             .padding(.horizontal, 12).padding(.vertical, 9)
-                                            .background(msg.user ? Color.blue : Color.secondary.opacity(0.14),
+                                            .background(msg.user ? Color.blue : adaptiveSecondaryInk.opacity(0.14),
                                                         in: RoundedRectangle(cornerRadius: 16))
                                             .foregroundStyle(msg.user ? .white : .primary)
                                         if !msg.user { Spacer(minLength: 40) }
@@ -50,14 +50,14 @@ struct AssistantView: View {
                                                     VStack(alignment: .leading, spacing: 1) {
                                                         Text(place.name).font(.caption.weight(.semibold)).foregroundStyle(.primary)
                                                         if !place.address.isEmpty {
-                                                            Text(place.address).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                                            Text(place.address).font(.caption2).foregroundStyle(adaptiveSecondaryInk).lineLimit(1)
                                                         }
                                                     }
                                                     Spacer()
-                                                    Image(systemName: "arrow.up.forward.app").font(.caption2).foregroundStyle(.secondary)
+                                                    Image(systemName: "arrow.up.forward.app").font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                                                 }
                                                 .padding(9)
-                                                .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                                                .background(adaptiveSecondaryInk.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                                             }
                                         }
                                     }
@@ -67,7 +67,7 @@ struct AssistantView: View {
                             if busy {
                                 HStack(spacing: 6) {
                                     ProgressView().controlSize(.small)
-                                    Text("دا أفكر…".loc).font(.caption).foregroundStyle(.secondary)
+                                    Text("دا أفكر…".loc).font(.caption).foregroundStyle(adaptiveSecondaryInk)
                                 }
                             }
                         }
@@ -91,7 +91,7 @@ struct AssistantView: View {
                     TextField("اسأل أو اكتب اسم مكان…".loc, text: $input)
                         .textFieldStyle(.plain)
                         .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .background(adaptiveSecondaryInk.opacity(0.12), in: Capsule())
                         .onSubmit { send(input) }
                     Button { send(input) } label: {
                         Image(systemName: "arrow.up.circle.fill").font(.title2)

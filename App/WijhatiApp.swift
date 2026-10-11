@@ -18,7 +18,9 @@ struct WijhatiApp: App {
         WindowGroup {
             ContentView()
                 .id(language)
-                .font(.body.weight(.bold))
+                .font(.body)
+                .fontDesign(.rounded)
+                .buttonStyle(AppPressStyle())
                 .foregroundStyle(adaptiveInk)
                 .environmentObject(store)
                 .environmentObject(location)
