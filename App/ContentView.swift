@@ -197,7 +197,7 @@ struct ContentView: View {
                 northReset: 0,
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
-                onMapTap: { showSearch = false }
+                onMapTap: { closeMapSearch() }
             )
             .ignoresSafeArea()
 
@@ -213,7 +213,7 @@ struct ContentView: View {
             if showSearch {
                 Color.black.opacity(0.16)
                     .ignoresSafeArea()
-                    .onTapGesture { showSearch = false }
+                    .onTapGesture { closeMapSearch() }
                     .transition(.opacity)
             }
 
@@ -295,6 +295,8 @@ struct ContentView: View {
             if pendingCenterOnUser && (status == .denied || status == .restricted) {
                 pendingCenterOnUser = false
                 showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
+            } else if pendingCenterOnUser && (status == .authorizedWhenInUse || status == .authorizedAlways) {
+                locationService.requestCurrentLocation()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -500,6 +502,25 @@ struct ContentView: View {
         .environment(\.layoutDirection, .leftToRight)
     }
 
+    private func openMapSearch(focus: Bool = true) {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            showSearch = true
+        }
+        guard focus else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            guard showSearch else { return }
+            overlayFocused = true
+        }
+    }
+
+    private func closeMapSearch() {
+        overlayFocused = false
+        voiceSearch.stop()
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            showSearch = false
+        }
+    }
+
     private var floatingMapTools: some View {
         HStack {
             VStack(alignment: .leading, spacing: 10) {
@@ -512,48 +533,21 @@ struct ContentView: View {
                 .accessibilityHint("توسيط الخريطة على موقعك".loc)
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
 
-                HStack(spacing: 10) {
-                    Button { showSettings = true } label: {
-                        mapToolLabel(icon: "gearshape.fill", title: "الإعدادات".loc,
-                                     tint: adaptiveInk)
+                if showSearch {
+                    searchBar
+                        .frame(maxWidth: .infinity)
+                        .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
+                } else {
+                    Button { openMapSearch() } label: {
+                        mapToolLabel(icon: "magnifyingglass", title: "بحث".loc,
+                                     tint: Color(red: 0.35, green: 0.48, blue: 0.62))
                     }
                     .buttonStyle(MapControlPressStyle())
-                    .accessibilityLabel("الإعدادات".loc)
-
-                    if showSearch {
-                        searchBar
-                            .frame(maxWidth: .infinity)
-                            .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
-                    } else {
-                        Button {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                showSearch = true
-                            }
-                            DispatchQueue.main.async { overlayFocused = true }
-                        } label: {
-                            mapToolLabel(icon: "magnifyingglass", title: "بحث".loc,
-                                         tint: Color(red: 0.35, green: 0.48, blue: 0.62))
-                        }
-                        .buttonStyle(MapControlPressStyle())
-                        .accessibilityLabel("بحث".loc)
-                        .transition(.scale(scale: 0.88).combined(with: .opacity))
-                        Spacer(minLength: 0)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if selected != nil {
-                    Button { show3D.toggle() } label: {
-                        mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
-                                     tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
-                    }
-                    .buttonStyle(MapControlPressStyle())
-                    .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
-                    .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
-                    .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    .accessibilityLabel("بحث".loc)
+                    .transition(.scale(scale: 0.88).combined(with: .opacity))
                 }
             }
-            Spacer(minLength: 0)
+            if !showSearch { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .environment(\.layoutDirection, .leftToRight)
@@ -663,8 +657,7 @@ struct ContentView: View {
                 .glass(cornerRadius: 18)
             } else if query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
                 Button {
-                    overlayFocused = false
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                    closeMapSearch()
                     Task { await runSearch() }
                 } label: {
                     Label("بحث".loc, systemImage: "magnifyingglass")
@@ -751,10 +744,7 @@ struct ContentView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Button {
-                overlayFocused = true
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
-            } label: {
+            Button { openMapSearch() } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Color(red: 0.47, green: 0.34, blue: 0.22))
@@ -768,14 +758,13 @@ struct ContentView: View {
                 .onSubmit {
                     suggestTask?.cancel()
                     suggestionSearching = false
-                    overlayFocused = false
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                    closeMapSearch()
                     Task { await runSearch() }
                 }
                 .onChange(of: query) { _, newValue in scheduleSuggestions(for: newValue) }
                 .onChange(of: overlayFocused) { _, focused in
                     if focused && !showSearch {
-                        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
+                        openMapSearch(focus: false)
                     }
                 }
             if searching || suggestionSearching { ProgressView().controlSize(.small) }
@@ -787,7 +776,7 @@ struct ContentView: View {
             }
             Button {
                 overlayFocused = false
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
+                openMapSearch(focus: false)
                 voiceSearch.toggle { text in
                     DispatchQueue.main.async { query = text }
                 }
@@ -799,8 +788,7 @@ struct ContentView: View {
             .accessibilityLabel(voiceSearch.isListening ? "إيقاف الإملاء".loc : "البحث بالصوت".loc)
             if showSearch {
                 Button {
-                    overlayFocused = false
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                    closeMapSearch()
                 } label: {
                     Image(systemName: "checkmark").foregroundStyle(.secondary)
                 }
@@ -1895,7 +1883,9 @@ struct ContentView: View {
     }
 
     private func centerOnMyLocation() {
+        if showSearch { closeMapSearch() }
         if locationService.authorization == .denied || locationService.authorization == .restricted {
+            pendingCenterOnUser = true
             showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
             if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                 UIApplication.shared.open(settingsURL)
@@ -1905,14 +1895,19 @@ struct ContentView: View {
         guard let loc = locationService.location else {
             pendingCenterOnUser = true
             showLocationNotice("جارٍ تحديد موقعك…".loc)
-            locationService.request()
+            locationService.requestCurrentLocation()
             return
         }
         pendingCenterOnUser = false
         locationNotice = nil
-        followUser = false
+        followUser = voice.active
         centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
         UISelectionFeedbackGenerator().selectionChanged()
+        if Date().timeIntervalSince(loc.timestamp) > 30 {
+            pendingCenterOnUser = true
+            showLocationNotice("جارٍ تحديث موقعك…".loc)
+            locationService.requestCurrentLocation()
+        }
     }
 
     private func openQuickPlace(_ place: Place) {
@@ -1928,8 +1923,10 @@ struct ContentView: View {
     private func select(_ place: Place) {
         pendingQuickRoute = false
         routeFailed = false
-        if showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id }) {
+        let selectedFromSearch = showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id })
+        if selectedFromSearch {
             historyStore.add(place)
+            query = ""
         }
         if selected?.id != place.id {
             // Invalidate any in-flight route for the previous destination.

@@ -37,6 +37,16 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         refreshActivityProfile()
     }
 
+    func requestCurrentLocation() {
+        let status = manager.authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways else {
+            request()
+            return
+        }
+        refreshActivityProfile()
+        manager.requestLocation()
+    }
+
     func setAppActive(_ active: Bool) {
         guard appIsActive != active else { return }
         appIsActive = active
