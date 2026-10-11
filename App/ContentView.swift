@@ -229,6 +229,12 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel("موقعي".loc)
                             .accessibilityHint("توسيط الخريطة على موقعك".loc)
+                            Button { showSettings = true } label: {
+                                mapToolLabel(icon: "gearshape.fill", title: "الإعدادات".loc,
+                                             tint: adaptiveInk)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("الإعدادات".loc)
                             if selected != nil {
                                 Button { show3D.toggle() } label: {
                                     mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
