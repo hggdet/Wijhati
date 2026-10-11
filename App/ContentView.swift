@@ -51,6 +51,7 @@ struct ContentView: View {
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @AppStorage("wijhati.voiceVolume") private var voiceVolume: Double = 1.0
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
@@ -97,6 +98,7 @@ struct ContentView: View {
     @State private var showSearch = false
     @FocusState private var overlayFocused: Bool
     @State private var routeNotice: String?
+    @State private var routeFailed = false
     @State private var suggestTask: Task<Void, Never>?
     @State private var suggestionSearching = false
     @State private var pendingQuickRoute = false
@@ -205,6 +207,7 @@ struct ContentView: View {
             VStack(spacing: 8) {
                 topBar
                 statusPills
+                if loadingRoute { routeLoadingBanner }
                 if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                 Spacer()
                 if !showSearch {
@@ -216,16 +219,17 @@ struct ContentView: View {
                                          tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                         }
                         .buttonStyle(.plain)
-                        Button { show3D.toggle() } label: {
-                            mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
-                                         tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
+                        .accessibilityLabel("موقعي".loc)
+                        .accessibilityHint("توسيط الخريطة على موقعك وتغيير وضع المتابعة".loc)
+                        if selected != nil {
+                            Button { show3D.toggle() } label: {
+                                mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
+                                             tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
+                            .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
                         }
-                        .buttonStyle(.plain)
-                        Button { showSaved = true } label: {
-                            mapToolLabel(icon: "bookmark.fill", title: "المحفوظات".loc,
-                                         tint: Color(red: 0.85, green: 0.47, blue: 0.22))
-                        }
-                        .buttonStyle(.plain)
                     }
                 }
                 .transition(.opacity)
@@ -290,7 +294,8 @@ struct ContentView: View {
             // A new key invalidates the cached patched MapTiler style
             // (its embedded tile/font URLs carry the old key).
             let dir = MapStyleKind.styleDir
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-maptiler-ar2.json"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-maptiler-ar3.json"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-mtpastel3-ar3.json"))
             MapStyleKind.prepareArabicStyles()
         }
         .sheet(isPresented: $showSaved) { savedSheet }
@@ -411,8 +416,13 @@ struct ContentView: View {
             }
             .glass(cornerRadius: 27)
             .buttonStyle(.plain)
+            .accessibilityLabel("الطقس الحالي".loc)
+            .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
 
             Menu {
+                Button { showSaved = true } label: {
+                    Label("الأماكن المحفوظة".loc, systemImage: "bookmark")
+                }
                 Button { showAssistant = true } label: {
                     Label("المساعد الذكي".loc, systemImage: "sparkles")
                 }
@@ -426,6 +436,7 @@ struct ContentView: View {
                     .frame(width: 48, height: 54)
             }
             .glass(cornerRadius: 25)
+            .accessibilityLabel("خيارات التطبيق".loc)
         }
     }
 
@@ -436,13 +447,14 @@ struct ContentView: View {
                 .foregroundStyle(tint)
                 .contentTransition(.symbolEffect(.replace))
             Text(title)
-                .font(.system(size: 9, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(adaptiveInk)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.75)
         }
-        .frame(width: 58, height: 58)
-        .glass(cornerRadius: 29)
+        .frame(width: verticalSizeClass == .compact ? 52 : 60,
+               height: verticalSizeClass == .compact ? 52 : 60)
+        .glass(cornerRadius: verticalSizeClass == .compact ? 26 : 30)
     }
 
     private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {
@@ -566,21 +578,69 @@ struct ContentView: View {
     // MARK: - Bottom stack
 
     private var bottomStack: some View {
-        VStack(spacing: 8) {
-            if let place = selected, selectedRoute == nil { placeCard(place) }
-            if let route = selectedRoute { routeBar(route) }
-            if !stops.isEmpty { stopsBar }
-            if let routeNotice, selectedRoute == nil {
-                Text(routeNotice)
-                    .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .glass(cornerRadius: 14)
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 8) {
+                if let place = selected, selectedRoute == nil { placeCard(place) }
+                if let route = selectedRoute { routeBar(route) }
+                if !stops.isEmpty { stopsBar }
+                if let routeNotice, selectedRoute == nil { routeNoticeCard(routeNotice) }
             }
         }
+        .frame(maxHeight: verticalSizeClass == .compact ? 210 : 340)
         .opacity(showSearch ? 0 : 1)
         .allowsHitTesting(!showSearch)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: suggestions.isEmpty)
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: showSearch)
+    }
+
+    private var routeLoadingBanner: some View {
+        HStack(spacing: 9) {
+            ProgressView().controlSize(.small)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("جاري حساب المسار".loc).font(.caption.weight(.bold))
+                if let place = selected {
+                    Text("إلى".loc + " \(place.name)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Text(transport.label).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 13).padding(.vertical, 9)
+        .glass(cornerRadius: 17)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("جاري حساب المسار".loc)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func routeNoticeCard(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: routeFailed ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                    .foregroundStyle(routeFailed ? Color.orange : Color.secondary)
+                Text(message)
+                    .font(.caption.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            if routeFailed {
+                Button {
+                    routeNotice = nil
+                    Task { await computeRoute() }
+                } label: {
+                    Label("إعادة المحاولة".loc, systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background(Color(red: 0.04, green: 0.68, blue: 0.55), in: Capsule())
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("إعادة حساب المسار إلى الوجهة المختارة".loc)
+            }
+        }
+        .padding(12)
+        .glass(cornerRadius: 19)
+        .accessibilityElement(children: .contain)
     }
 
     private var searchBar: some View {
@@ -746,19 +806,21 @@ struct ContentView: View {
     }
 
     private func routeBar(_ route: RouteData) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: verticalSizeClass == .compact ? 6 : 10) {
             Capsule().fill(Color.secondary.opacity(0.34)).frame(width: 38, height: 5)
 
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("إلى \(selected?.name ?? "وجهتك")")
+                    Text("إلى".loc + " \(selected?.name ?? "وجهتك".loc)")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary).lineLimit(1)
                     Text("الوصول المتوقع".loc)
                         .font(.caption2.weight(.bold)).foregroundStyle(.secondary)
                     Text(expectedArrival(route.duration))
-                        .font(.system(size: 27, weight: .heavy, design: .rounded))
+                        .font(verticalSizeClass == .compact ? .headline.weight(.heavy) : .title2.weight(.heavy))
                         .foregroundStyle(adaptiveInk)
                         .contentTransition(.numericText())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
                 Spacer(minLength: 8)
                 Button { clearRoute() } label: {
@@ -802,11 +864,10 @@ struct ContentView: View {
                             .padding(.horizontal, 9).padding(.vertical, 7)
                             .background(transport == choice ? Color(red: 0.04, green: 0.68, blue: 0.55) : Color.white.opacity(0.38),
                                         in: Capsule())
-                            .foregroundStyle(transport == choice ? .white : .primary)
+                            .foregroundStyle(transport == choice ? .white : adaptiveInk)
                     }
                     .buttonStyle(.plain)
                 }
-                if loadingRoute { ProgressView().controlSize(.small) }
                 Spacer()
             }
 
@@ -815,7 +876,7 @@ struct ContentView: View {
                     HStack(spacing: 6) {
                         ForEach(routes.indices, id: \.self) { idx in
                             Button { selectedRouteIndex = idx } label: {
-                                Text(idx == 0 ? "الأسرع: \(formatDuration(routes[idx].duration))" : "بديل: \(formatDuration(routes[idx].duration))")
+                                Text(idx == 0 ? "الأسرع".loc + ": \(formatDuration(routes[idx].duration))" : "بديل".loc + ": \(formatDuration(routes[idx].duration))")
                                     .font(.caption2.weight(.semibold))
                                     .padding(.horizontal, 9).padding(.vertical, 6)
                                     .background(idx == selectedRouteIndex ? Color.orange.opacity(0.22) : Color.white.opacity(0.32), in: Capsule())
@@ -836,7 +897,7 @@ struct ContentView: View {
                       systemImage: voice.active ? "location.north.fill" : "location.fill")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
-                    .frame(height: 52)
+                    .frame(height: verticalSizeClass == .compact ? 46 : 52)
                     .background(LinearGradient(colors: [Color(red: 0.06, green: 0.73, blue: 0.60), Color(red: 0.02, green: 0.62, blue: 0.51)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .foregroundStyle(.white)
             }
@@ -844,7 +905,7 @@ struct ContentView: View {
             .disabled(voice.active)
             .opacity(voice.active ? 0.78 : 1)
 
-            if !elevations.isEmpty {
+            if !elevations.isEmpty, verticalSizeClass != .compact {
                 HStack(spacing: 6) {
                     Image(systemName: "mountain.2").foregroundStyle(.secondary)
                     ElevationChart(values: elevations).frame(height: 22)
@@ -854,8 +915,8 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 11)
-        .padding(.bottom, 14)
+        .padding(.top, verticalSizeClass == .compact ? 7 : 11)
+        .padding(.bottom, verticalSizeClass == .compact ? 9 : 14)
         .glass(cornerRadius: 30)
         .shadow(color: Color(red: 0.17, green: 0.40, blue: 0.35).opacity(0.18), radius: 18, y: 8)
     }
@@ -1738,6 +1799,7 @@ struct ContentView: View {
 
     private func select(_ place: Place) {
         pendingQuickRoute = false
+        routeFailed = false
         if showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id }) {
             historyStore.add(place)
         }
@@ -1796,19 +1858,29 @@ struct ContentView: View {
     }
 
     private func computeRoute() async {
-        guard let origin = locationService.location?.coordinate, let dest = selected else { return }
+        guard let dest = selected else { return }
+        guard let origin = locationService.location?.coordinate else {
+            routeGeneration += 1
+            loadingRoute = false
+            routeFailed = true
+            routeNotice = "بانتظار تحديد موقعك. فعّل إذن الموقع ثم أعد المحاولة.".loc
+            locationService.request()
+            return
+        }
         // Generation guard: if the user switches transport or destination
         // mid-flight, the stale computation must not overwrite the new one.
         routeGeneration += 1
         let gen = routeGeneration
         lastRouteAt = Date()
         routeNotice = nil
+        routeFailed = false
         loadingRoute = true
         let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
                                             to: dest.coordinate, profile: transport.osrmProfile)
         guard gen == routeGeneration else { return }
         loadingRoute = false
         if result.isEmpty {
+            routeFailed = true
             routeNotice = "\("تعذّر حساب مسار".loc) \(transport.label) \("لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب".loc)"
         }
         // Show the routes immediately; landmark-enriched copies replace
@@ -1865,6 +1937,8 @@ struct ContentView: View {
         routeGeneration += 1
         loadingRoute = false
         offRouteCount = 0
+        routeFailed = false
+        routeNotice = nil
         routes = []
         elevations = []
         voice.stop()
