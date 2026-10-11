@@ -3,6 +3,8 @@ import CoreLocation
 import UIKit
 import WidgetKit
 
+private typealias MapControlPressStyle = AppPressStyle
+
 struct Category: Identifiable {
     var id: String { key }
     var key: String
@@ -103,9 +105,8 @@ struct ContentView: View {
     @State private var pendingQuickRoute = false
     @State private var pendingInitialLocationCenter = true
     @State private var lastStartupCenterTimestamp: Date?
-    @State private var showIntro = true
+    @State private var showIntro = false
     @State private var pendingCenterOnUser = false
-    @State private var locationPulse = false
     @State private var locationNotice: String?
     @State private var placeSheetFull = false
     @State private var placeSheetDragY: CGFloat = 0
@@ -471,6 +472,7 @@ struct ContentView: View {
                 .frame(height: 42)
                 .glass(cornerRadius: 21)
             }
+            .contentShape(Capsule())
             .buttonStyle(MapControlPressStyle())
             .accessibilityLabel("الطقس الحالي".loc)
             .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
@@ -495,6 +497,7 @@ struct ContentView: View {
                     .frame(width: 44, height: 44)
             }
             .glassCircle()
+            .contentShape(Circle())
             .buttonStyle(MapControlPressStyle())
             .accessibilityLabel("خيارات التطبيق".loc)
         }
@@ -521,24 +524,14 @@ struct ContentView: View {
         }
     }
 
-    private func playMapControlHaptic() {
-        let feedback = UIImpactFeedbackGenerator(style: .soft)
-        feedback.prepare()
-        feedback.impactOccurred(intensity: 0.55)
-    }
-
     private var floatingMapTools: some View {
         HStack {
             VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    locationPulse.toggle()
-                    playMapControlHaptic()
-                    centerOnMyLocation(requestFreshFix: true)
-                } label: {
+                Button { centerOnMyLocation(requestFreshFix: true) } label: {
                     mapToolCircle(icon: "location.fill",
-                                  tint: Color(red: 0.04, green: 0.62, blue: 0.49),
-                                  pulse: locationPulse)
+                                  tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                 }
+                .contentShape(Circle())
                 .buttonStyle(MapControlPressStyle())
                 .accessibilityLabel("موقعي".loc)
                 .accessibilityHint("توسيط الخريطة على موقعك".loc)
@@ -549,13 +542,11 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
                 } else {
-                    Button {
-                        playMapControlHaptic()
-                        openMapSearch()
-                    } label: {
+                    Button { openMapSearch() } label: {
                         mapToolCircle(icon: "magnifyingglass",
                                       tint: Color(red: 0.35, green: 0.48, blue: 0.62))
                     }
+                    .contentShape(Circle())
                     .buttonStyle(MapControlPressStyle())
                     .accessibilityLabel("بحث".loc)
                     .transition(.scale(scale: 0.88).combined(with: .opacity))
@@ -568,16 +559,16 @@ struct ContentView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: showSearch)
     }
 
-    private func mapToolCircle(icon: String, tint: Color, pulse: Bool = false) -> some View {
+    private func mapToolCircle(icon: String, tint: Color) -> some View {
         Image(systemName: icon)
             .font(.system(size: 20, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
-            .symbolEffect(.bounce, value: pulse)
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: verticalSizeClass == .compact ? 52 : 58,
                    height: verticalSizeClass == .compact ? 52 : 58)
             .glassCircle()
+            .contentShape(Circle())
     }
 
     private func weatherDetailCard(_ w: GeoService.WeatherNow) -> some View {
