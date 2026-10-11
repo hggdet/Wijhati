@@ -98,6 +98,8 @@ struct ContentView: View {
     @FocusState private var overlayFocused: Bool
     @State private var routeNotice: String?
     @State private var suggestTask: Task<Void, Never>?
+    @State private var suggestionSearching = false
+    @State private var pendingQuickRoute = false
     @State private var showIntro = true
     @State private var locStage = 0
     @State private var placeSheetFull = false
@@ -265,6 +267,10 @@ struct ContentView: View {
         }
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
+            if pendingQuickRoute {
+                pendingQuickRoute = false
+                Task { await computeRoute() }
+            }
             voice.update(userLocation: loc)
             refreshLocalWeatherIfNeeded(loc.coordinate)
             checkProximity(loc)
@@ -276,7 +282,12 @@ struct ContentView: View {
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
         .onAppear { applySemanticDirection() }
         .onChange(of: language) { _, _ in applySemanticDirection() }
-        .onChange(of: showSearch) { _, open in if !open { voiceSearch.stop() } }
+        .onChange(of: showSearch) { _, open in
+            if !open {
+                voiceSearch.stop()
+                cancelSuggestionSearch()
+            }
+        }
         .onChange(of: appearance) { _, _ in syncStyleToScheme() }
         .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
         .onChange(of: styleKind) { _, newKind in
@@ -303,8 +314,18 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             guard url.scheme == "wijhati" else { return }
-            if url.host == "home", let homePlace { select(homePlace); Task { await computeRoute() } }
-            if url.host == "work", let workPlace { select(workPlace); Task { await computeRoute() } }
+            if url.host == "home", let place = homePlace ?? Self.loadQuickPlace("wijhati.homePlace") {
+                homePlace = place
+                openQuickPlace(place)
+            }
+            if url.host == "work", let place = workPlace ?? Self.loadQuickPlace("wijhati.workPlace") {
+                workPlace = place
+                openQuickPlace(place)
+            }
+            if url.host == "setup" {
+                showIntro = false
+                showSettings = true
+            }
         }
         .sheet(isPresented: $showAssistant) {
             AssistantView(userLocation: locationService.location?.coordinate) { place in
@@ -457,26 +478,43 @@ struct ContentView: View {
                     TextField("ابحث عن مكان أو عنوان".loc, text: $query)
                         .font(.subheadline)
                         .focused($overlayFocused)
-                        .onSubmit { showSearch = false; overlayFocused = false; Task { await runSearch() } }
+                        .onSubmit {
+                            suggestTask?.cancel()
+                            suggestionSearching = false
+                            showSearch = false
+                            overlayFocused = false
+                            Task { await runSearch() }
+                        }
                         .onChange(of: query) { _, newValue in
                             suggestTask?.cancel()
+                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard trimmed.count >= 2 else {
+                                suggestionSearching = false
+                                suggestions = []
+                                return
+                            }
+                            // Replace stale suggestions immediately with local
+                            // matches; network results are merged when ready.
+                            let local = localMatches(for: trimmed)
+                            suggestions = local
+                            suggestionSearching = true
                             suggestTask = Task {
-                                try? await Task.sleep(nanoseconds: 90_000_000)
+                                do { try await Task.sleep(nanoseconds: 220_000_000) }
+                                catch { return }
                                 guard !Task.isCancelled, query == newValue else { return }
-                                if newValue.trimmingCharacters(in: .whitespaces).count >= 2 {
-                                    // Local results (saved / official / history)
-                                    // appear instantly; remote merges in after.
-                                    let local = localMatches(for: newValue)
-                                    if !local.isEmpty { suggestions = local }
-                                    let remote = await GeoService.search(newValue, near: locationService.location?.coordinate, limit: 6)
-                                    guard !Task.isCancelled, query == newValue else { return }
-                                    suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
-                                } else {
-                                    suggestions = []
-                                }
+                                let remote = await GeoService.search(
+                                    trimmed,
+                                    near: locationService.location?.coordinate,
+                                    limit: 6,
+                                    includeFallback: false,
+                                    timeout: 6
+                                )
+                                guard !Task.isCancelled, query == newValue else { return }
+                                suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
+                                suggestionSearching = false
                             }
                         }
-                    if searching { ProgressView() }
+                    if searching || suggestionSearching { ProgressView() }
                     if !query.isEmpty {
                         Button { query = ""; suggestions = [] } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1631,7 +1669,18 @@ struct ContentView: View {
         return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
     }
 
+    private func openQuickPlace(_ place: Place) {
+        showIntro = false
+        select(place)
+        if locationService.location != nil {
+            Task { await computeRoute() }
+        } else {
+            pendingQuickRoute = true
+        }
+    }
+
     private func select(_ place: Place) {
+        pendingQuickRoute = false
         if showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id }) {
             historyStore.add(place)
         }
@@ -1669,6 +1718,12 @@ struct ContentView: View {
                 select(resolved)
             }
         }
+    }
+
+    private func cancelSuggestionSearch() {
+        suggestTask?.cancel()
+        suggestTask = nil
+        suggestionSearching = false
     }
 
     private func runSearch() async {
@@ -1812,14 +1867,26 @@ extension ContentView {
     }
     func syncWidgetPlaces() {
         guard let shared = UserDefaults(suiteName: "group.com.hggdet.wijhati") else { return }
+        var changed = false
         for (place, k) in [(homePlace, "home"), (workPlace, "work")] {
+            let existing = shared.dictionary(forKey: k)
+            let matches: Bool
             if let place {
-                shared.set(["name": place.name, "lat": place.latitude, "lon": place.longitude], forKey: k)
+                matches = (existing?["name"] as? String) == place.name
+                    && abs((existing?["lat"] as? Double ?? .greatestFiniteMagnitude) - place.latitude) < 0.0000001
+                    && abs((existing?["lon"] as? Double ?? .greatestFiniteMagnitude) - place.longitude) < 0.0000001
+                if !matches {
+                    shared.set(["name": place.name, "lat": place.latitude, "lon": place.longitude], forKey: k)
+                }
             } else {
-                shared.removeObject(forKey: k)
+                matches = existing == nil
+                if !matches { shared.removeObject(forKey: k) }
             }
+            changed = changed || !matches
         }
-        WidgetCenter.shared.reloadAllTimelines()
+        if changed {
+            WidgetCenter.shared.reloadTimelines(ofKind: "WijhatiQuick")
+        }
     }
     func localMatches(for query: String) -> [Place] {
         let q = GeoService.normalizeArabic(query)
