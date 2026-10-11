@@ -270,6 +270,7 @@ struct MapBridge: UIViewRepresentable {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         map.showsUserLocation = isAppActive
         map.prefetchesTiles = isAppActive && followUser
@@ -301,6 +302,7 @@ struct MapBridge: UIViewRepresentable {
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
+        context.coordinator.setMapActive(isAppActive)
         if context.coordinator.currentStyle != styleKind,
            context.coordinator.failedStyle != styleKind {
             context.coordinator.currentStyle = styleKind
@@ -360,18 +362,37 @@ struct MapBridge: UIViewRepresentable {
         var failedStyle: MapStyleKind?
         var was3DOn = false
         private var didEnterBackground = false
+        private var resumeScheduled = false
         @objc func appEnteredBackground() {
             didEnterBackground = true
         }
 
+        @objc func appWillEnterForeground() {
+            didEnterBackground = true
+        }
+
+        func setMapActive(_ active: Bool) {
+            if active {
+                appBecameActive()
+            } else {
+                didEnterBackground = true
+            }
+        }
+
         @objc func appBecameActive() {
-            guard didEnterBackground, let map else { return }
-            didEnterBackground = false
+            guard didEnterBackground, !resumeScheduled, map != nil else { return }
+            resumeScheduled = true
             // MapLibre's GL surface can resume with a stale frame while a
             // non-nil style is still attached. Rebuild the style after the
             // app is active so tiles, route layers and annotations repaint.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak map] in
-                guard let self, let map, map.window != nil else { return }
+                guard let self else { return }
+                guard let map else {
+                    self.resumeScheduled = false
+                    return
+                }
+                self.didEnterBackground = false
+                self.resumeScheduled = false
                 map.setNeedsLayout()
                 map.layoutIfNeeded()
                 map.delegate = self

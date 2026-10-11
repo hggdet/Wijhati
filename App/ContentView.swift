@@ -241,6 +241,7 @@ struct ContentView: View {
                         }
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
                     .environment(\.layoutDirection, .leftToRight)
                     bottomStack
