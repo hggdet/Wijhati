@@ -28,7 +28,7 @@ enum MapStyleKind: String, CaseIterable {
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
-        case .mtPastel: return Self.patchedStyleFile("mtpastel") ?? Self.maptilerPastelRemoteURL
+        case .mtPastel: return Self.patchedStyleFile("mtpastel2") ?? Self.maptilerPastelRemoteURL
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
@@ -69,7 +69,15 @@ enum MapStyleKind: String, CaseIterable {
     private static func patchedStyleFile(_ name: String) -> URL? {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
-        return FileManager.default.fileExists(atPath: file.path) ? file : nil
+        guard let data = try? Data(contentsOf: file),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              root["layers"] != nil else {
+            // Missing or corrupt cache: drop it so it regenerates cleanly
+            // instead of feeding the map a broken style at launch.
+            try? FileManager.default.removeItem(at: file)
+            return nil
+        }
+        return file
     }
 
     /// Label rule: prefer the primary `name` when it is written in Arabic
@@ -172,7 +180,7 @@ enum MapStyleKind: String, CaseIterable {
         // MapTiler Pastel: the designed signature style — same label patch.
         if let remote = maptilerPastelRemoteURL {
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            let file = dir.appendingPathComponent("wijhati-mtpastel-ar2.json")
+            let file = dir.appendingPathComponent("wijhati-mtpastel2-ar2.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
                     guard let data,
@@ -183,6 +191,20 @@ enum MapStyleKind: String, CaseIterable {
                               layout["text-field"] != nil else { continue }
                         layout["text-field"] = arabicNameExpression()
                         layers[i]["layout"] = layout
+                    }
+                    let fillColors: [String: String] = [
+                        "water": "#2F9BE8",
+                        "landcover_grass": "#93CC7A", "globallandcover_grass": "#93CC7A",
+                        "landcover_wood": "#5FAE5F", "globallandcover_wood": "#5FAE5F",
+                        "landuse_parks": "#8FD07E", "landuse_residential": "#F6F1E3",
+                        "building": "#F0E4CC",
+                    ]
+                    for i in layers.indices {
+                        let layerID = layers[i]["id"] as? String ?? ""
+                        var paint = layers[i]["paint"] as? [String: Any] ?? [:]
+                        if layerID == "background" { paint["background-color"] = "#E9F3DD"; layers[i]["paint"] = paint }
+                        if let hex = fillColors[layerID] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
+                        if layerID == "waterway" { paint["line-color"] = "#2F9BE8"; layers[i]["paint"] = paint }
                     }
                     root["layers"] = layers
                     if let out = try? JSONSerialization.data(withJSONObject: root) {
@@ -233,7 +255,7 @@ struct MapBridge: UIViewRepresentable {
         map.prefetchesTiles = true
         map.compassView.isHidden = true
         map.logoView.isHidden = true
-        map.attributionButton.isHidden = false
+        map.attributionButton.isHidden = true
         map.setCenter(CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661), zoomLevel: 11, animated: false)
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleTap(_:)))
@@ -244,6 +266,16 @@ struct MapBridge: UIViewRepresentable {
         longPress.minimumPressDuration = 0.45
         map.addGestureRecognizer(longPress)
         context.coordinator.map = map
+        // The Arabic-patched copy of the current style may finish
+        // downloading just after launch; if so, swap to it once so
+        // labels turn Arabic without waiting for the next launch.
+        let kindAtMake = styleKind
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7) { [weak map] in
+            guard let map, context.coordinator.currentStyle == kindAtMake,
+                  let fresh = kindAtMake.url, map.styleURL != fresh else { return }
+            context.coordinator.styleReady = false
+            map.styleURL = fresh
+        }
         return map
     }
 
@@ -530,9 +562,9 @@ struct MapBridge: UIViewRepresentable {
                     // cooler steel for towers) — the "detailed 3D city"
                     // look from the post, from open data.
                     if isShortbread {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#f6ecda", 15, "#eeddc0", 40, "#d9e4ee", 90, "#aec6de"] as [Any])
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#f8edd6", 8, "#f2dcae", 20, "#e6c88f", 45, "#cfd9e6", 90, "#9db9da"] as [Any])
                     } else {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#f6ecda", 15, "#eeddc0", 40, "#d9e4ee", 90, "#aec6de"] as [Any])
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#f8edd6", 8, "#f2dcae", 20, "#e6c88f", 45, "#cfd9e6", 90, "#9db9da"] as [Any])
                     }
                     layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.88)
                     layer.minimumZoomLevel = 15
