@@ -453,6 +453,33 @@ struct ContentView: View {
 
     private var topBar: some View {
         HStack(spacing: 9) {
+            Button {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
+                    showWeatherDetail.toggle()
+                }
+                refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true)
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: weatherSymbol(for: localWeather?.weatherCode))
+                        .font(.system(size: 15, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                        .symbolEffect(.pulse, value: showWeatherDetail)
+                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(adaptiveInk)
+                        .contentTransition(.numericText())
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 42)
+                .glass(cornerRadius: 21)
+            }
+            .buttonStyle(MapControlPressStyle())
+            .accessibilityLabel("الطقس الحالي".loc)
+            .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
+
+            Spacer(minLength: 0)
+
             Menu {
                 Button { showSaved = true } label: {
                     Label("الأماكن المحفوظة".loc, systemImage: "bookmark")
@@ -465,38 +492,13 @@ struct ContentView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(adaptiveInk)
-                    .frame(width: 56, height: 56)
+                    .frame(width: 44, height: 44)
             }
-            .glass(cornerRadius: 17)
+            .glassCircle()
             .buttonStyle(MapControlPressStyle())
             .accessibilityLabel("خيارات التطبيق".loc)
-
-            Spacer(minLength: 0)
-
-            Button {
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
-                    showWeatherDetail.toggle()
-                }
-                refreshLocalWeatherIfNeeded(locationService.location?.coordinate, force: true)
-            } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "cloud.sun.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.88, green: 0.58, blue: 0.16))
-                        .symbolEffect(.pulse, value: showWeatherDetail)
-                    Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(adaptiveInk)
-                        .contentTransition(.numericText())
-                }
-                .frame(width: 56, height: 56)
-            }
-            .glass(cornerRadius: 17)
-            .buttonStyle(MapControlPressStyle())
-            .accessibilityLabel("الطقس الحالي".loc)
-            .accessibilityValue(localWeather.map { "\(displayTemp($0.temperature))، \($0.label)" } ?? "جارٍ تحميل الطقس".loc)
         }
         .frame(maxWidth: .infinity)
         .environment(\.layoutDirection, .leftToRight)
@@ -578,6 +580,21 @@ struct ContentView: View {
             Spacer()
         }
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private func weatherSymbol(for code: Int?) -> String {
+        guard let code else { return "cloud.fill" }
+        switch code {
+        case 0: return "sun.max.fill"
+        case 1, 2: return "cloud.sun.fill"
+        case 3: return "cloud.fill"
+        case 45, 48: return "cloud.fog.fill"
+        case 51, 53, 55: return "cloud.drizzle.fill"
+        case 61, 63, 65, 80, 81, 82: return "cloud.rain.fill"
+        case 66, 67, 71, 73, 75, 77, 85, 86: return "cloud.snow.fill"
+        case 95, 96, 99: return "cloud.bolt.rain.fill"
+        default: return "cloud.fill"
+        }
     }
 
     private func refreshLocalWeatherIfNeeded(_ coordinate: CLLocationCoordinate2D?, force: Bool = false) {

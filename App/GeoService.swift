@@ -450,6 +450,7 @@ enum GeoService {
     // MARK: - Open-Meteo weather + elevation
     struct WeatherNow {
         var temperature: Double
+        var weatherCode: Int
         var label: String
         var sunrise: String
         var sunset: String
@@ -464,7 +465,7 @@ enum GeoService {
         let daily = root["daily"] as? [String: Any]
         let sunrise = ((daily?["sunrise"] as? [String])?.first ?? "").suffix(5)
         let sunset = ((daily?["sunset"] as? [String])?.first ?? "").suffix(5)
-        return WeatherNow(temperature: temp, label: weatherLabel(code),
+        return WeatherNow(temperature: temp, weatherCode: code, label: weatherLabel(code),
                           sunrise: String(sunrise), sunset: String(sunset))
     }
 
