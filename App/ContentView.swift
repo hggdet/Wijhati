@@ -69,7 +69,7 @@ struct ContentView: View {
     @State private var searching = false
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .standard
+    @State private var styleKind: MapStyleKind = .pastel
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var northReset = 0
@@ -132,7 +132,7 @@ struct ContentView: View {
                 autoDark = true
             }
         } else if autoDark {
-            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .standard
+            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .pastel
             autoDark = false
         }
     }
@@ -208,16 +208,34 @@ struct ContentView: View {
                 if !showSearch {
                 HStack {
                     Spacer()
-
-                    Button { advanceLocationStage() } label: {
-                        Image(systemName: locStageIcon)
-                            .font(.system(size: 20, weight: .bold))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(locStageColors.0, locStageColors.1)
-                            .frame(width: 52, height: 52)
-                            .contentTransition(.symbolEffect(.replace))
+                    VStack(spacing: 10) {
+                        Button { advanceLocationStage() } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: locStageIcon)
+                                    .font(.system(size: 20, weight: .bold))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(locStageColors.0, locStageColors.1)
+                                    .contentTransition(.symbolEffect(.replace))
+                                Text("موقعي".loc)
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(adaptiveInk)
+                            }
+                            .frame(width: 66, height: 66)
+                        }
+                        .glass(cornerRadius: 33)
+                        Button { showSearch = true } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: "safari.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(adaptiveInk)
+                                Text("استكشف".loc)
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(adaptiveInk)
+                            }
+                            .frame(width: 66, height: 66)
+                        }
+                        .glass(cornerRadius: 33)
                     }
-                    .glass(cornerRadius: 26)
                 }
                 .transition(.opacity)
                 }
@@ -378,7 +396,7 @@ struct ContentView: View {
             }
             .glass(cornerRadius: 23)
 
-            Spacer()
+            searchBar
 
             Button { showAssistant = true } label: {
                 Image(systemName: "sparkles")
@@ -511,7 +529,6 @@ struct ContentView: View {
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .glass(cornerRadius: 14)
             }
-            searchBar
         }
         .opacity(showSearch ? 0 : 1)
         .allowsHitTesting(!showSearch)
@@ -711,17 +728,6 @@ struct ContentView: View {
                 }
                 Spacer()
                 Button {
-                    if let place = selected {
-                        followUser = true
-                        voice.start(steps: route.steps, destination: place.coordinate)
-                    }
-                } label: {
-                    Label("جيب".loc, systemImage: "waveform")
-                        .font(.caption.weight(.bold))
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(Color.blue, in: Capsule()).foregroundStyle(.white)
-                }
-                Button {
                     directionsText = makeDirectionsText()
                     showDirections = true
                 } label: {
@@ -732,10 +738,23 @@ struct ContentView: View {
                 }
             }
             .font(.caption.weight(.medium))
+            Button {
+                if let place = selected {
+                    followUser = true
+                    voice.start(steps: route.steps, destination: place.coordinate)
+                }
+            } label: {
+                Label("انطلق الآن".loc, systemImage: "location.fill")
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color(red: 0.04, green: 0.72, blue: 0.60), in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(.white)
+            }
             if !elevations.isEmpty { ElevationChart(values: elevations).frame(height: 34) }
         }
-        .padding(11)
-        .glass(cornerRadius: 20)
+        .padding(14)
+        .glass(cornerRadius: 26)
     }
 
     // MARK: - Place card
@@ -1265,7 +1284,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.56").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.57").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
