@@ -299,6 +299,8 @@ struct MapBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
+        map.backgroundColor = UIColor.systemBackground
+        map.isOpaque = false
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
@@ -327,13 +329,14 @@ struct MapBridge: UIViewRepresentable {
                   let fresh = kindAtMake.url, map.styleURL != fresh else { return }
             context.coordinator.styleReady = false
             map.styleURL = fresh
+            context.coordinator.armWatchdog(stage: 0)
         }
         context.coordinator.armWatchdog(stage: 0)
         return map
     }
 
     static func dismantleUIView(_ uiView: MLNMapView, coordinator: Coordinator) {
-        coordinator.watchdog?.cancel()
+        coordinator.cancelWatchdog()
         NotificationCenter.default.removeObserver(coordinator)
         uiView.delegate = nil
         coordinator.map = nil
@@ -341,13 +344,15 @@ struct MapBridge: UIViewRepresentable {
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.setMapActive(isAppActive)
-        if context.coordinator.currentStyle != styleKind,
-           context.coordinator.failedStyle != styleKind {
+        if context.coordinator.requestedStyle != styleKind {
+            context.coordinator.requestedStyle = styleKind
+            context.coordinator.usingFallbackStyle = false
             context.coordinator.currentStyle = styleKind
             context.coordinator.styleReady = false
             map.styleURL = styleKind.url ?? MapStyleKind.standard.url
+            context.coordinator.armWatchdog(stage: 0)
         }
+        context.coordinator.setMapActive(isAppActive)
         let shouldShowUserLocation = isAppActive
         if map.showsUserLocation != shouldShowUserLocation {
             map.showsUserLocation = shouldShowUserLocation
@@ -392,48 +397,93 @@ struct MapBridge: UIViewRepresentable {
         var parent: MapBridge
         weak var map: MLNMapView?
         var currentStyle: MapStyleKind
+        var requestedStyle: MapStyleKind
         var styleReady = false
         var lastCenterID: UUID?
         var lastBearingID: UUID?
         var didCenterOnUser = false
         var lastLayerSignature = "" 
         var lastNorthReset: Int = 0
-        var failedStyle: MapStyleKind?
+        var usingFallbackStyle = false
         var was3DOn = false
         var watchdog: DispatchWorkItem?
+        private var watchdogToken = UUID()
         private var didEnterBackground = false
         private var resumeScheduled = false
-        @objc func appEnteredBackground() {
+        private var lifecycleGeneration = 0
+        private var lastReportedAppActive: Bool?
+
+        func cancelWatchdog() {
+            watchdog?.cancel()
+            watchdog = nil
+            watchdogToken = UUID()
+        }
+
+        private func noteBackground() {
+            if lastReportedAppActive != false { lifecycleGeneration += 1 }
+            lastReportedAppActive = false
             didEnterBackground = true
+            resumeScheduled = false
+            cancelWatchdog()
+        }
+
+        @objc func appEnteredBackground() {
+            lifecycleGeneration += 1
+            lastReportedAppActive = false
+            didEnterBackground = true
+            resumeScheduled = false
+            cancelWatchdog()
         }
 
         @objc func appWillEnterForeground() {
+            if lastReportedAppActive != false { lifecycleGeneration += 1 }
+            lastReportedAppActive = false
             didEnterBackground = true
         }
 
         func setMapActive(_ active: Bool) {
             if active {
+                lastReportedAppActive = true
                 appBecameActive()
             } else {
-                didEnterBackground = true
+                noteBackground()
             }
         }
 
-        /// Second line of defence behind the resume rebuild: if the
-        /// style still is not ready 6 s later, reload it from the
-        /// remote source; 6 s after that, fall back to standard.
+        /// Recover from transient style failures without retrying a known-bad
+        /// user style forever or changing the camera.
         func armWatchdog(stage: Int) {
-            watchdog?.cancel()
+            cancelWatchdog()
+            let token = watchdogToken
             let work = DispatchWorkItem { [weak self] in
-                guard let self, let map = self.map, !self.styleReady else { return }
-                if stage == 0 {
-                    MapHealth.log("الحارس: إعادة تحميل الستايل من النت")
-                    map.styleURL = self.parent.styleKind.remoteURL ?? self.parent.styleKind.url
+                guard let self, self.watchdogToken == token,
+                      let map = self.map, !self.styleReady else { return }
+                guard UIApplication.shared.applicationState == .active else {
+                    self.watchdog = nil
+                    return
+                }
+                switch stage {
+                case 0:
+                    MapHealth.log("الحارس: إعادة تحميل النمط الحالي من المصدر البعيد")
+                    map.styleURL = self.currentStyle.remoteURL ?? self.currentStyle.url
                     self.armWatchdog(stage: 1)
-                } else {
+                case 1:
                     MapHealth.log("الحارس: تحويل للستايل القياسي")
+                    if self.currentStyle != .standard {
+                        self.usingFallbackStyle = true
+                    }
                     self.currentStyle = .standard
                     map.styleURL = MapStyleKind.standard.url
+                    self.armWatchdog(stage: 2)
+                case 2:
+                    MapHealth.log("الحارس: إعادة محاولة النمط القياسي من المصدر البعيد")
+                    self.currentStyle = .standard
+                    self.usingFallbackStyle = true
+                    map.styleURL = MapStyleKind.standard.remoteURL ?? MapStyleKind.standard.url
+                    self.armWatchdog(stage: 3)
+                default:
+                    MapHealth.log("الحارس: النمط ما زال ينتظر اتصال البلاطات")
+                    self.watchdog = nil
                 }
             }
             watchdog = work
@@ -443,12 +493,19 @@ struct MapBridge: UIViewRepresentable {
         @objc func appBecameActive() {
             guard didEnterBackground, !resumeScheduled, map != nil else { return }
             resumeScheduled = true
+            let generation = lifecycleGeneration
             MapHealth.log("رجوع للواجهة: إعادة بناء الستايل")
             // MapLibre's GL surface can resume with a stale frame while a
             // non-nil style is still attached. Rebuild the style after the
             // app is active so tiles, route layers and annotations repaint.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak map] in
                 guard let self else { return }
+                guard self.lifecycleGeneration == generation else { return }
+                guard UIApplication.shared.applicationState == .active else {
+                    self.resumeScheduled = false
+                    self.didEnterBackground = true
+                    return
+                }
                 guard let map else {
                     self.resumeScheduled = false
                     return
@@ -463,6 +520,12 @@ struct MapBridge: UIViewRepresentable {
                 map.styleURL = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak map] in
                     guard let self else { return }
+                    guard self.lifecycleGeneration == generation else { return }
+                    guard UIApplication.shared.applicationState == .active else {
+                        self.resumeScheduled = false
+                        self.didEnterBackground = true
+                        return
+                    }
                     guard let map else {
                         self.resumeScheduled = false
                         return
@@ -471,10 +534,10 @@ struct MapBridge: UIViewRepresentable {
                     self.resumeScheduled = false
                     self.styleReady = false
                     self.lastLayerSignature = ""
-                    self.failedStyle = nil
-                    self.currentStyle = self.parent.styleKind
+                    let restoreStyle = self.usingFallbackStyle ? MapStyleKind.standard : self.requestedStyle
+                    self.currentStyle = restoreStyle
                     map.delegate = self
-                    map.styleURL = self.parent.styleKind.url ?? MapStyleKind.standard.url
+                    map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
                     map.setCamera(camera, animated: false)
                     map.setNeedsLayout()
                     map.setNeedsDisplay()
@@ -495,30 +558,35 @@ struct MapBridge: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, didFailLoading style: MLNStyle, withError error: Error) {
-            MapHealth.log("خطأ تحميل: \(error.localizedDescription.prefix(60))")
-            // Remember the failure: without this, updateUIView keeps
-            // re-applying the broken style on every location update and
-            // the map reloads forever.
-            failedStyle = currentStyle
+            MapHealth.log("خطأ تحميل \(currentStyle.rawValue): \(error.localizedDescription.prefix(60))")
+            // Keep the requested style separate from the currently rendered
+            // fallback so location updates do not reapply a failed style.
+            styleReady = false
+            usingFallbackStyle = true
             if currentStyle != .standard {
                 currentStyle = .standard
-                styleReady = false
                 mapView.styleURL = MapStyleKind.standard.url
             }
+            armWatchdog(stage: 2)
         }
         private var shownPinIDs: [String] = []
 
         init(_ parent: MapBridge) {
             self.parent = parent
             self.currentStyle = parent.styleKind
+            self.requestedStyle = parent.styleKind
         }
 
         // MARK: Delegate
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
-            failedStyle = nil
             styleReady = true
-            watchdog?.cancel()
+            if currentStyle == requestedStyle {
+                usingFallbackStyle = false
+            }
+            cancelWatchdog()
             lastLayerSignature = ""
+            mapView.setNeedsLayout()
+            mapView.setNeedsDisplay()
             refreshLayers(style: style)
         }
 
