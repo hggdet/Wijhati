@@ -168,7 +168,7 @@ struct ContentView: View {
         return "\(Int(celsius.rounded()))°C"
     }
 
-    var body: some View {
+    private var mapComposition: some View {
         ZStack {
             MapBridge(
                 pins: allPins,
@@ -256,6 +256,10 @@ struct ContentView: View {
             if voice.active { pocketOverlay }
             if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
         }
+    }
+
+    var body: some View {
+        mapComposition
         .onAppear {
             locationService.setAppActive(scenePhase == .active)
             locationService.request()
