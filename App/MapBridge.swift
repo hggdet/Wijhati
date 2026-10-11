@@ -2,11 +2,12 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, pastel, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
+    case standard, pastel, mtPastel, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
     var label: String {
         switch self {
         case .standard: return "قياسية".loc
-        case .pastel: return "باستيل".loc
+        case .pastel: return "باستيل ناعم".loc
+        case .mtPastel: return "باستيل".loc
         case .bright: return "فاتحة".loc
         case .ofmBright: return "زاهية".loc
         case .dark: return "ليلي".loc
@@ -27,6 +28,7 @@ enum MapStyleKind: String, CaseIterable {
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
+        case .mtPastel: return Self.patchedStyleFile("mtpastel") ?? Self.maptilerPastelRemoteURL
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
@@ -52,6 +54,11 @@ enum MapStyleKind: String, CaseIterable {
         let key = maptilerKey
         guard !key.isEmpty else { return nil }
         return URL(string: "https://api.maptiler.com/maps/streets-v2/style.json?key=\(key)")
+    }
+    private static var maptilerPastelRemoteURL: URL? {
+        let key = maptilerKey
+        guard !key.isEmpty else { return nil }
+        return URL(string: "https://api.maptiler.com/maps/pastel/style.json?key=\(key)")
     }
 
     // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
@@ -144,6 +151,26 @@ enum MapStyleKind: String, CaseIterable {
         if let remote = maptilerRemoteURL {
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             let file = dir.appendingPathComponent("wijhati-maptiler-ar2.json")
+            if !FileManager.default.fileExists(atPath: file.path) {
+                URLSession.shared.dataTask(with: remote) { data, _, _ in
+                    guard let data,
+                          var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                          var layers = root["layers"] as? [[String: Any]] else { return }
+                    for i in layers.indices {
+                        guard var layout = layers[i]["layout"] as? [String: Any],
+                              layout["text-field"] != nil else { continue }
+                        layout["text-field"] = arabicNameExpression()
+                        layers[i]["layout"] = layout
+                    }
+                    root["layers"] = layers
+                    if let out = try? JSONSerialization.data(withJSONObject: root) {
+                        try? out.write(to: file, options: .atomic)
+                    }
+        }
+        // MapTiler Pastel: the designed signature style — same label patch.
+        if let remote = maptilerPastelRemoteURL {
+            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let file = dir.appendingPathComponent("wijhati-mtpastel-ar2.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
                     guard let data,
