@@ -166,6 +166,8 @@ enum MapStyleKind: String, CaseIterable {
                     if let out = try? JSONSerialization.data(withJSONObject: root) {
                         try? out.write(to: file, options: .atomic)
                     }
+                }.resume()
+            }
         }
         // MapTiler Pastel: the designed signature style — same label patch.
         if let remote = maptilerPastelRemoteURL {
