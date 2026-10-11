@@ -1284,7 +1284,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.59").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.60").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
                     .font(.caption2).foregroundStyle(.secondary)
