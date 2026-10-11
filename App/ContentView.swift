@@ -192,15 +192,6 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            // Progressive blur veils over the map edges (expo-backdrop take)
-            VStack(spacing: 0) {
-                ProgressiveBlurView(edge: .top).frame(height: 110)
-                Spacer()
-                ProgressiveBlurView(edge: .bottom).frame(height: 200)
-            }
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-
             if showSearch {
                 Color.black.opacity(0.16)
                     .ignoresSafeArea()
@@ -1391,52 +1382,79 @@ struct ContentView: View {
     private var settingsSheet: some View {
         NavigationStack {
             List {
-                NavigationLink {
-                    mapSettingsPage
-                } label: {
-                    Label("الخريطة".loc, systemImage: "map.fill")
+                Section("الخريطة والمظهر".loc) {
+                    Picker("المظهر".loc, selection: $appearance) {
+                        Text("الوضع العادي".loc).tag("light")
+                        Text("تلقائي".loc).tag("auto")
+                        Text("الوضع الداكن".loc).tag("dark")
+                    }
+                    .pickerStyle(.segmented)
+                    NavigationLink {
+                        mapSettingsPage
+                    } label: {
+                        Label("الخريطة".loc, systemImage: "map.fill")
+                    }
                 }
-                NavigationLink {
-                    appearancePage
-                } label: {
-                    Label("المظهر".loc, systemImage: "circle.lefthalf.filled")
+                Section("الملاحة".loc) {
+                    NavigationLink {
+                        navigationSettingsPage
+                    } label: {
+                        Label("الملاحة والصوت".loc, systemImage: "waveform")
+                    }
                 }
-                NavigationLink {
-                    offlinePage
-                } label: {
-                    Label("خرائط بدون إنترنت".loc, systemImage: "arrow.down.circle.fill")
+                Section("اللغة والوحدات".loc) {
+                    Picker("اللغة".loc, selection: $language) {
+                        Text("العربية").tag("ar")
+                        Text("English").tag("en")
+                        Text("کوردی").tag("ku")
+                    }
+                    .pickerStyle(.menu)
+                    Picker("وحدة الحرارة".loc, selection: $tempUnit) {
+                        Text("سيليزية °C".loc).tag("c")
+                        Text("فهرنهايت °F".loc).tag("f")
+                    }
+                    .pickerStyle(.menu)
+                    Picker("وحدة المسافة".loc, selection: $distanceUnit) {
+                        Text("كيلومتر".loc).tag("km")
+                        Text("ميل".loc).tag("mi")
+                        Text("تلقائي".loc).tag("auto")
+                    }
+                    .pickerStyle(.menu)
                 }
-                NavigationLink {
-                    notificationsPage
-                } label: {
-                    Label("الإشعارات".loc, systemImage: "bell.fill")
-                }
-                NavigationLink {
-                    locationSettingsPage
-                } label: {
-                    Label("الموقع".loc, systemImage: "location.fill")
-                }
-                NavigationLink {
-                    languagePage
-                } label: {
-                    Label("اللغة".loc, systemImage: "globe")
-                }
-                NavigationLink {
-                    helpPage
-                } label: {
-                    Label("مساعدة وملاحظات".loc, systemImage: "questionmark.circle.fill")
-                }
-                NavigationLink {
-                    aboutPage
-                } label: {
-                    Label("حول وجهتي".loc, systemImage: "info.circle.fill")
-                }
-                Section {
+                Section("أماكن سريعة".loc) {
+                    quickPlaceRow(title: "البيت".loc, icon: "house.fill", place: homePlace,
+                                  key: "wijhati.homePlace", isHome: true, dismissSettings: true)
+                    quickPlaceRow(title: "الشغل".loc, icon: "briefcase.fill", place: workPlace,
+                                  key: "wijhati.workPlace", isHome: false, dismissSettings: true)
                     Button {
                         showSettings = false
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showSaved = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) { showSaved = true }
                     } label: {
                         Label("أماكني المحفوظة".loc, systemImage: "bookmark.fill")
+                    }
+                }
+                Section("الوصول والبيانات".loc) {
+                    NavigationLink {
+                        offlinePage
+                    } label: {
+                        Label("خرائط بدون إنترنت".loc, systemImage: "arrow.down.circle.fill")
+                    }
+                    NavigationLink {
+                        locationSettingsPage
+                    } label: {
+                        Label("الموقع".loc, systemImage: "location.fill")
+                    }
+                }
+                Section("مساعدة وملاحظات".loc) {
+                    NavigationLink {
+                        helpPage
+                    } label: {
+                        Label("مساعدة وملاحظات".loc, systemImage: "questionmark.circle.fill")
+                    }
+                    NavigationLink {
+                        aboutPage
+                    } label: {
+                        Label("حول وجهتي".loc, systemImage: "info.circle.fill")
                     }
                 }
             }
@@ -1453,29 +1471,20 @@ struct ContentView: View {
 
     private var mapSettingsPage: some View {
         Form {
-            Section {
+            Section("طبقات".loc) {
                 Picker("النمط".loc, selection: $styleKind) {
                     ForEach(MapStyleKind.allCases.filter { $0 != .cartoon }, id: \.self) { kind in
                         Text(kind.label).tag(kind)
                     }
                 }
                 .pickerStyle(.menu)
-                Picker("وحدة الحرارة".loc, selection: $tempUnit) {
-                    Text("سيليزية °C".loc).tag("c")
-                    Text("فهرنهايت °F".loc).tag("f")
-                }
-                .pickerStyle(.menu)
-                Picker("وحدة المسافة".loc, selection: $distanceUnit) {
-                    Text("كيلومتر".loc).tag("km")
-                    Text("ميل".loc).tag("mi")
-                    Text("تلقائي".loc).tag("auto")
-                }
-                .pickerStyle(.menu)
                 Toggle("أبنية ثلاثية الأبعاد".loc, isOn: $show3D)
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
+            }
+            Section("شفافية الواجهة".loc) {
                 VStack(spacing: 8) {
                     HStack {
-                        Text("شريط التحكم بالزجاج".loc)
+                        Text("شفافية الواجهة".loc)
                         Spacer()
                         Text("\(Int(glassLevel * 100))٪")
                             .font(.caption).foregroundStyle(adaptiveSecondaryInk)
@@ -1490,27 +1499,6 @@ struct ContentView: View {
             }
         }
         .navigationTitle("الخريطة".loc)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var appearancePage: some View {
-        Form {
-            ForEach([("light", "الوضع العادي"), ("auto", "تلقائي"), ("dark", "الوضع الداكن")], id: \.0) { item in
-                Button {
-                    appearance = item.0
-                } label: {
-                    HStack {
-                        Text(item.1.loc)
-                        Spacer()
-                        if appearance == item.0 {
-                            Image(systemName: "checkmark").foregroundStyle(.blue)
-                        }
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-        }
-        .navigationTitle("المظهر".loc)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -1679,27 +1667,6 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var languagePage: some View {
-        Form {
-            ForEach([("ar", "العربية"), ("en", "English"), ("ku", "کوردی")], id: \.0) { item in
-                Button {
-                    language = item.0
-                } label: {
-                    HStack {
-                        Text(item.1)
-                        Spacer()
-                        if language == item.0 {
-                            Image(systemName: "checkmark").foregroundStyle(.blue)
-                        }
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-        }
-        .navigationTitle("اللغة".loc)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
     private var locationSettingsPage: some View {
         Form {
             Section("موقعك الحالي".loc) {
@@ -1810,7 +1777,7 @@ struct ContentView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var notificationsPage: some View {
+    private var navigationSettingsPage: some View {
         Form {
             Section {
                 Toggle("التنبيهات".loc, isOn: $notifMaster)
@@ -1819,7 +1786,7 @@ struct ContentView: View {
                     .onChange(of: notifSaved) { _, on in if on { Notify.requestPermission() } }
                     .disabled(!notifMaster)
             }
-            Section {
+            Section("صوت المرشد".loc) {
                 VStack(spacing: 8) {
                     HStack {
                         Text("صوت المرشد".loc)
@@ -1844,7 +1811,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("الإشعارات".loc)
+        .navigationTitle("الملاحة والصوت".loc)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -2188,7 +2155,8 @@ extension ContentView {
         return Array(out.prefix(4))
     }
     @ViewBuilder
-    func quickPlaceRow(title: String, icon: String, place: Place?, key: String, isHome: Bool) -> some View {
+    func quickPlaceRow(title: String, icon: String, place: Place?, key: String,
+                       isHome: Bool, dismissSettings: Bool = false) -> some View {
         if let place {
             HStack {
                 Image(systemName: icon).foregroundStyle(adaptiveInk)
@@ -2198,15 +2166,17 @@ extension ContentView {
                 }
                 Spacer()
                 Button("اتجاهات".loc) {
+                    if dismissSettings { showSettings = false }
                     showSaved = false
                     select(place)
                     Task { await computeRoute() }
                 }
                 .font(.caption.weight(.bold))
+                .buttonStyle(.borderless)
                 Button(role: .destructive) { saveQuickPlace(nil, key: key, isHome: isHome) } label: {
                     Image(systemName: "trash")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
             }
         } else {
             Button {
@@ -2221,6 +2191,7 @@ extension ContentView {
             } label: {
                 Label("\("تعيين".loc) \(title) \("من موقعي الحالي".loc)", systemImage: icon)
             }
+            .disabled(locationService.location == nil)
         }
     }
 }

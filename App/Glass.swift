@@ -10,14 +10,10 @@ struct GlassSurfaceModifier<S: InsettableShape>: ViewModifier {
 
     private var level: Double { min(max(glassLevel, 0), 1) }
     private var dark: Bool { scheme == .dark }
-    private var tintOpacity: Double { (1 - level) * (dark ? 0.09 : 0.34) }
-
-    private var wash: LinearGradient {
-        let opacity = (1 - level) * (dark ? 0.075 : 0.30)
-        let colors = dark
-            ? [Color.white.opacity(opacity), Color.black.opacity(0.08)]
-            : [Color.white.opacity(opacity), Color.white.opacity(opacity * 0.35)]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var surfaceFill: Color {
+        dark
+            ? Color.black.opacity(0.78 - level * 0.25)
+            : Color.white.opacity(0.94 - level * 0.34)
     }
 
     private var border: LinearGradient {
@@ -27,34 +23,13 @@ struct GlassSurfaceModifier<S: InsettableShape>: ViewModifier {
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    private var shadowOpacity: Double { dark ? 0.26 : 0.10 }
+    private var shadowOpacity: Double { dark ? 0.18 : 0.06 }
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if level < 0.03 {
-            content
-                .background(
-                    dark ? Color(red: 0.12, green: 0.13, blue: 0.15) : Color.white,
-                    in: shape
-                )
-                .overlay { shape.strokeBorder(dark ? Color.white.opacity(0.14) : Color.black.opacity(0.07), lineWidth: 1) }
-                .shadow(color: .black.opacity(shadowOpacity), radius: 10, y: 3)
-        } else if #available(iOS 26.0, *) {
-            content
-                .glassEffect(.regular.tint(Color.white.opacity(tintOpacity)).interactive(), in: shape)
-                .overlay { shape.strokeBorder(border, lineWidth: 1) }
-                .shadow(color: .black.opacity(shadowOpacity), radius: 10, y: 3)
-        } else {
-            content
-                .background {
-                    ZStack {
-                        shape.fill(.ultraThinMaterial)
-                        shape.fill(wash)
-                    }
-                }
-                .overlay { shape.strokeBorder(border, lineWidth: 1) }
-                .shadow(color: .black.opacity(shadowOpacity), radius: 10, y: 3)
-        }
+        content
+            .background(shape.fill(surfaceFill))
+            .overlay { shape.strokeBorder(border, lineWidth: 1) }
+            .shadow(color: .black.opacity(shadowOpacity), radius: 4, y: 2)
     }
 }
 
