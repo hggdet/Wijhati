@@ -331,6 +331,13 @@ struct MapBridge: UIViewRepresentable {
         return map
     }
 
+    static func dismantleUIView(_ uiView: MLNMapView, coordinator: Coordinator) {
+        coordinator.watchdog?.cancel()
+        NotificationCenter.default.removeObserver(coordinator)
+        uiView.delegate = nil
+        coordinator.map = nil
+    }
+
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.setMapActive(isAppActive)
@@ -445,18 +452,33 @@ struct MapBridge: UIViewRepresentable {
                     self.resumeScheduled = false
                     return
                 }
-                self.didEnterBackground = false
-                self.resumeScheduled = false
+                let camera = map.camera
                 map.setNeedsLayout()
                 map.layoutIfNeeded()
-                map.delegate = self
-                self.styleReady = false
-                self.lastLayerSignature = ""
-                self.failedStyle = nil
-                self.currentStyle = self.parent.styleKind
-                map.styleURL = self.parent.styleKind.url ?? MapStyleKind.standard.url
-                map.setNeedsDisplay()
-                self.armWatchdog(stage: 0)
+                // Detach the old style first. Reassigning the same style URL
+                // can leave MapLibre's GL surface on a stale white frame after
+                // the app resumes from suspension.
+                map.delegate = nil
+                map.styleURL = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak map] in
+                    guard let self else { return }
+                    guard let map else {
+                        self.resumeScheduled = false
+                        return
+                    }
+                    self.didEnterBackground = false
+                    self.resumeScheduled = false
+                    self.styleReady = false
+                    self.lastLayerSignature = ""
+                    self.failedStyle = nil
+                    self.currentStyle = self.parent.styleKind
+                    map.delegate = self
+                    map.styleURL = self.parent.styleKind.url ?? MapStyleKind.standard.url
+                    map.setCamera(camera, animated: false)
+                    map.setNeedsLayout()
+                    map.setNeedsDisplay()
+                    self.armWatchdog(stage: 0)
+                }
             }
         }
 
