@@ -98,6 +98,20 @@ struct AppPressStyle: ButtonStyle {
     }
 }
 
+/// More expressive tactile feedback reserved for the primary map controls.
+struct MapControlPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.93 : 1)
+            .offset(y: configuration.isPressed && !reduceMotion ? 1 : 0)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.58),
+                       value: configuration.isPressed)
+    }
+}
+
 /// Compact glass chip used for the category strip.
 struct ChipButtonStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

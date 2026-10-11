@@ -3,9 +3,6 @@ import CoreLocation
 import UIKit
 import WidgetKit
 
-private typealias MapControlPressStyle = AppPressStyle
-
-
 struct Category: Identifiable {
     var id: String { key }
     var key: String
@@ -108,6 +105,7 @@ struct ContentView: View {
     @State private var lastStartupCenterTimestamp: Date?
     @State private var showIntro = true
     @State private var pendingCenterOnUser = false
+    @State private var locationPulse = false
     @State private var locationNotice: String?
     @State private var placeSheetFull = false
     @State private var placeSheetDragY: CGFloat = 0
@@ -523,12 +521,23 @@ struct ContentView: View {
         }
     }
 
+    private func playMapControlHaptic() {
+        let feedback = UIImpactFeedbackGenerator(style: .soft)
+        feedback.prepare()
+        feedback.impactOccurred(intensity: 0.55)
+    }
+
     private var floatingMapTools: some View {
         HStack {
             VStack(alignment: .leading, spacing: 10) {
-                Button { centerOnMyLocation(requestFreshFix: true) } label: {
+                Button {
+                    locationPulse.toggle()
+                    playMapControlHaptic()
+                    centerOnMyLocation(requestFreshFix: true)
+                } label: {
                     mapToolCircle(icon: "location.fill",
-                                  tint: Color(red: 0.04, green: 0.62, blue: 0.49))
+                                  tint: Color(red: 0.04, green: 0.62, blue: 0.49),
+                                  pulse: locationPulse)
                 }
                 .buttonStyle(MapControlPressStyle())
                 .accessibilityLabel("موقعي".loc)
@@ -540,7 +549,10 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                         .transition(.scale(scale: 0.96, anchor: .leading).combined(with: .opacity))
                 } else {
-                    Button { openMapSearch() } label: {
+                    Button {
+                        playMapControlHaptic()
+                        openMapSearch()
+                    } label: {
                         mapToolCircle(icon: "magnifyingglass",
                                       tint: Color(red: 0.35, green: 0.48, blue: 0.62))
                     }
@@ -556,10 +568,11 @@ struct ContentView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: showSearch)
     }
 
-    private func mapToolCircle(icon: String, tint: Color) -> some View {
+    private func mapToolCircle(icon: String, tint: Color, pulse: Bool = false) -> some View {
         Image(systemName: icon)
             .font(.system(size: 20, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
+            .symbolEffect(.bounce, value: pulse)
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: verticalSizeClass == .compact ? 52 : 58,
