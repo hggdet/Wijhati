@@ -73,7 +73,6 @@ struct ContentView: View {
     @State private var styleKind: MapStyleKind = .mtPastel
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
-    @State private var northReset = 0
 
     @State private var showSaved = false
     @State private var showSettings = false
@@ -103,13 +102,13 @@ struct ContentView: View {
     @State private var suggestionSearching = false
     @State private var pendingQuickRoute = false
     @State private var showIntro = true
-    @State private var locStage = 0
+    @State private var pendingCenterOnUser = false
+    @State private var locationNotice: String?
     @State private var placeSheetFull = false
     @State private var placeSheetDragY: CGFloat = 0
     @State private var placeSheetVelocity: CGFloat = 0
     @State private var dragPrevY: CGFloat = 0
     @State private var dragLastTime: Date?
-    @State private var bearingRequest: BearingRequest?
     @State private var alertCooldown: [String: Date] = [:]
 
     private var allPins: [Place] {
@@ -180,8 +179,8 @@ struct ContentView: View {
                 followUser: followUser,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
-                bearingRequest: bearingRequest,
-                northReset: northReset,
+                bearingRequest: nil,
+                northReset: 0,
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
                 onMapTap: { showSearch = false }
@@ -206,41 +205,52 @@ struct ContentView: View {
 
             VStack(spacing: 8) {
                 topBar
-                statusPills
-                if loadingRoute { routeLoadingBanner }
-                if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
-                Spacer()
+                if showSearch { searchResultsPanel }
                 if !showSearch {
-                HStack {
+                    statusPills
+                    if let locationNotice {
+                        Text(locationNotice)
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .glass(cornerRadius: 15)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    if loadingRoute { routeLoadingBanner }
+                    if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                     Spacer()
-                    VStack(spacing: 10) {
-                        Button { advanceLocationStage() } label: {
-                            mapToolLabel(icon: locStageIcon, title: "موقعي".loc,
-                                         tint: Color(red: 0.04, green: 0.62, blue: 0.49))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("موقعي".loc)
-                        .accessibilityHint("توسيط الخريطة على موقعك وتغيير وضع المتابعة".loc)
-                        if selected != nil {
-                            Button { show3D.toggle() } label: {
-                                mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
-                                             tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            Button { centerOnMyLocation() } label: {
+                                mapToolLabel(icon: "location.fill", title: "موقعي".loc,
+                                             tint: Color(red: 0.04, green: 0.62, blue: 0.49))
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
-                            .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
+                            .accessibilityLabel("موقعي".loc)
+                            .accessibilityHint("توسيط الخريطة على موقعك".loc)
+                            if selected != nil {
+                                Button { show3D.toggle() } label: {
+                                    mapToolLabel(icon: "cube.fill", title: "أبعاد ثلاثية".loc,
+                                                 tint: show3D ? Color(red: 0.85, green: 0.47, blue: 0.22) : adaptiveInk)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("تبديل المباني ثلاثية الأبعاد".loc)
+                                .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
+                            }
                         }
                     }
+                    .transition(.opacity)
+                    .environment(\.layoutDirection, .leftToRight)
+                    bottomStack
+                } else {
+                    Spacer(minLength: 0)
                 }
-                .transition(.opacity)
-                }
-                bottomStack
             }
             .padding(.horizontal, 10)
             .padding(.top, 6)
             .padding(.bottom, 8)
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showSearch)
 
-            if showSearch { searchOverlay }
             if voice.active { pocketOverlay }
             if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
         }
@@ -260,6 +270,11 @@ struct ContentView: View {
         }
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
+            if pendingCenterOnUser {
+                pendingCenterOnUser = false
+                centerOnMyLocation()
+            }
+            locationNotice = nil
             if pendingQuickRoute {
                 pendingQuickRoute = false
                 Task { await computeRoute() }
@@ -270,6 +285,12 @@ struct ContentView: View {
             checkOffRoute(loc)
             checkSpeedLimit(loc)
         }
+        .onChange(of: locationService.authorization) { _, status in
+            if pendingCenterOnUser && (status == .denied || status == .restricted) {
+                pendingCenterOnUser = false
+                showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
+            }
+        }
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
@@ -277,6 +298,7 @@ struct ContentView: View {
         .onChange(of: language) { _, _ in applySemanticDirection() }
         .onChange(of: showSearch) { _, open in
             if !open {
+                overlayFocused = false
                 voiceSearch.stop()
                 cancelSuggestionSearch()
             }
@@ -488,91 +510,77 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Raised search overlay (bar at top, suggestions under it)
-    private var searchOverlay: some View {
-        ZStack(alignment: .top) {
-            Color.black.opacity(0.28).ignoresSafeArea()
-                .onTapGesture { showSearch = false; overlayFocused = false }
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("ابحث عن مكان أو عنوان".loc, text: $query)
-                        .font(.subheadline)
-                        .focused($overlayFocused)
-                        .onSubmit {
-                            suggestTask?.cancel()
-                            suggestionSearching = false
-                            showSearch = false
-                            overlayFocused = false
-                            Task { await runSearch() }
-                        }
-                        .onChange(of: query) { _, newValue in
-                            suggestTask?.cancel()
-                            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard trimmed.count >= 2 else {
-                                suggestionSearching = false
-                                suggestions = []
-                                return
-                            }
-                            // Replace stale suggestions immediately with local
-                            // matches; network results are merged when ready.
-                            let local = localMatches(for: trimmed)
-                            suggestions = local
-                            suggestionSearching = true
-                            suggestTask = Task {
-                                do { try await Task.sleep(nanoseconds: 220_000_000) }
-                                catch { return }
-                                guard !Task.isCancelled, query == newValue else { return }
-                                let remote = await GeoService.search(
-                                    trimmed,
-                                    near: locationService.location?.coordinate,
-                                    limit: 6,
-                                    includeFallback: false,
-                                    timeout: 6
-                                )
-                                guard !Task.isCancelled, query == newValue else { return }
-                                suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
-                                suggestionSearching = false
-                            }
-                        }
-                    if searching || suggestionSearching { ProgressView() }
-                    if !query.isEmpty {
-                        Button { query = ""; suggestions = [] } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }
-                    }
-                    Button {
-                        voiceSearch.toggle { text in
-                            DispatchQueue.main.async { query = text }
-                        }
-                    } label: {
-                        Image(systemName: voiceSearch.isListening ? "mic.fill" : "mic")
-                            .foregroundStyle(voiceSearch.isListening ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
-                    }
-                    Button("تم".loc) { showSearch = false; overlayFocused = false }
-                        .font(.subheadline.weight(.bold))
-                }
-                .padding(.horizontal, 12)
-                .frame(height: 46)
-                .background(Color(UIColor.systemBackground).opacity(0.38), in: RoundedRectangle(cornerRadius: 23))
-                .glass(cornerRadius: 23)
-                .overlay(RoundedRectangle(cornerRadius: 23).stroke(Color.white.opacity(0.28), lineWidth: 1))
-                .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
-                if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                    VStack(spacing: 8) {
-                        if !historyStore.items.isEmpty { historyList }
-                        if !store.places.isEmpty { savedQuickList }
-                    }
-                } else if !suggestions.isEmpty {
-                    suggestionsList
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 108)
+    // MARK: - Search results (the input stays in the single top search bar)
+
+    private func scheduleSuggestions(for newValue: String) {
+        suggestTask?.cancel()
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            suggestionSearching = false
+            suggestions = []
+            return
         }
-        .zIndex(6)
-        .onAppear { DispatchQueue.main.async { overlayFocused = true } }
-        .transition(.opacity)
+
+        let local = localMatches(for: trimmed)
+        suggestions = local
+        suggestionSearching = true
+        suggestTask = Task {
+            do { try await Task.sleep(nanoseconds: 220_000_000) }
+            catch { return }
+            guard !Task.isCancelled, query == newValue else { return }
+            let remote = await GeoService.search(
+                trimmed,
+                near: locationService.location?.coordinate,
+                limit: 6,
+                includeFallback: false,
+                timeout: 6
+            )
+            guard !Task.isCancelled, query == newValue else { return }
+            suggestions = local + remote.filter { r in !local.contains { $0.id == r.id } }
+            suggestionSearching = false
+        }
+    }
+
+    private var searchResultsPanel: some View {
+        VStack(spacing: 8) {
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !historyStore.items.isEmpty || !store.places.isEmpty {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            if !historyStore.items.isEmpty { historyList }
+                            if !store.places.isEmpty { savedQuickList }
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                }
+            } else if !suggestions.isEmpty {
+                suggestionsList
+            } else if suggestionSearching {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("جاري البحث عن الأماكن".loc).font(.caption.weight(.medium))
+                    Spacer()
+                }
+                .padding(12)
+                .glass(cornerRadius: 18)
+            } else if query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 {
+                Button {
+                    overlayFocused = false
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                    Task { await runSearch() }
+                } label: {
+                    Label("بحث".loc, systemImage: "magnifyingglass")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .glass(cornerRadius: 18)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: suggestions.count)
     }
 
     // MARK: - Bottom stack
@@ -645,25 +653,61 @@ struct ContentView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Button { showSearch = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.47, green: 0.34, blue: 0.22))
-                    Text(query.isEmpty ? "ابحث عن مكان أو عنوان".loc : query)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(query.isEmpty ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                        .lineLimit(1)
-                    Spacer()
-                }
-                .contentShape(Rectangle())
+            Button {
+                overlayFocused = true
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.47, green: 0.34, blue: 0.22))
             }
             .buttonStyle(.plain)
-            if searching { ProgressView() }
+            TextField("ابحث عن مكان أو عنوان".loc, text: $query)
+                .font(.subheadline.weight(.semibold))
+                .textFieldStyle(.plain)
+                .focused($overlayFocused)
+                .submitLabel(.search)
+                .onSubmit {
+                    suggestTask?.cancel()
+                    suggestionSearching = false
+                    overlayFocused = false
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                    Task { await runSearch() }
+                }
+                .onChange(of: query) { _, newValue in scheduleSuggestions(for: newValue) }
+                .onChange(of: overlayFocused) { _, focused in
+                    if focused && !showSearch {
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
+                    }
+                }
+            if searching || suggestionSearching { ProgressView().controlSize(.small) }
             if !query.isEmpty {
                 Button { query = ""; suggestions = [] } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+            }
+            Button {
+                overlayFocused = false
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = true }
+                voiceSearch.toggle { text in
+                    DispatchQueue.main.async { query = text }
+                }
+            } label: {
+                Image(systemName: voiceSearch.isListening ? "mic.fill" : "mic")
+                    .foregroundStyle(voiceSearch.isListening ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(voiceSearch.isListening ? "إيقاف الإملاء".loc : "البحث بالصوت".loc)
+            if showSearch {
+                Button {
+                    overlayFocused = false
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { showSearch = false }
+                } label: {
+                    Image(systemName: "checkmark").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("تم".loc)
             }
         }
         .padding(.horizontal, 15)
@@ -1742,49 +1786,35 @@ struct ContentView: View {
 
     // MARK: - Actions
 
-    private var locStageIcon: String {
-        switch locStage {
-        case 2: return "location.north.fill"
-        case 3: return "building.2.fill"
-        default: return "location.fill"
+    private func showLocationNotice(_ message: String) {
+        withAnimation(.easeInOut(duration: 0.18)) { locationNotice = message }
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if locationNotice == message {
+                withAnimation(.easeInOut(duration: 0.18)) { locationNotice = nil }
+            }
         }
     }
 
-    /// One button, three stages: 1 = go to my location,
-    /// 2 = compass (or face the chosen destination), 3 = 3D buildings,
-    /// next press returns to flat north view.
-    private func advanceLocationStage() {
-        locStage = (locStage + 1) % 4
-        switch locStage {
-        case 1:
-            followUser = false
-            if let loc = locationService.location {
-                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+    private func centerOnMyLocation() {
+        if locationService.authorization == .denied || locationService.authorization == .restricted {
+            showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
+            if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(settingsURL)
             }
-        case 2:
-            if let dest = selected?.coordinate, let loc = locationService.location {
-                followUser = false
-                bearingRequest = BearingRequest(degrees: bearingDegrees(from: loc.coordinate, to: dest))
-                centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
-            } else {
-                followUser = true
-            }
-        case 3:
-            followUser = false
-            show3D = true
-        default:
-            followUser = false
-            show3D = false
-            northReset += 1
+            return
         }
-    }
-
-    private func bearingDegrees(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
-        let dLon = (b.longitude - a.longitude) * .pi / 180
-        let lat1 = a.latitude * .pi / 180, lat2 = b.latitude * .pi / 180
-        let y = sin(dLon) * cos(lat2)
-        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
-        return (atan2(y, x) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        guard let loc = locationService.location else {
+            pendingCenterOnUser = true
+            showLocationNotice("جارٍ تحديد موقعك…".loc)
+            locationService.request()
+            return
+        }
+        pendingCenterOnUser = false
+        locationNotice = nil
+        followUser = false
+        centerRequest = CenterRequest(coordinate: loc.coordinate, zoom: 15)
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 
     private func openQuickPlace(_ place: Place) {
