@@ -258,7 +258,7 @@ struct ContentView: View {
         }
     }
 
-    var body: some View {
+    private var lifecycleContent: some View {
         mapComposition
         .onAppear {
             locationService.setAppActive(scenePhase == .active)
@@ -308,6 +308,10 @@ struct ContentView: View {
         .onChange(of: showAR) { _, active in
             locationService.setCameraNavigationActive(active)
         }
+    }
+
+    private var styledContent: some View {
+        lifecycleContent
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
@@ -337,6 +341,10 @@ struct ContentView: View {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-mtpastel3-ar3.json"))
             MapStyleKind.prepareArabicStyles()
         }
+    }
+
+    private var presentedContent: some View {
+        styledContent
         .sheet(isPresented: $showSaved) { savedSheet }
         .sheet(isPresented: $showDirections) { directionsSheet }
         .fullScreenCover(isPresented: $showAR) {
@@ -378,6 +386,10 @@ struct ContentView: View {
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
+    }
+
+    var body: some View {
+        presentedContent
     }
 
     @ViewBuilder
