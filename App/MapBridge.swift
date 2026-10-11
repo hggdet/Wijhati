@@ -66,17 +66,34 @@ enum MapStyleKind: String, CaseIterable {
     // label to prefer the Arabic name, and cache the patched style
     // locally — labels then show pure Arabic instead of the stock
     // bilingual Latin+Arabic rendering.
+    /// Directory for patched style files. Application Support, NOT
+    /// Caches: iOS purges Caches under storage pressure — often while
+    /// the app sits in the background — and a map whose style file
+    /// vanished mid-flight can only render white.
+    static var styleDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("wijhati-styles", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private static var patchedMemo: [String: (Date, URL)] = [:]
+
     private static func patchedStyleFile(_ name: String) -> URL? {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
+        let file = styleDir.appendingPathComponent("wijhati-\(name)-ar2.json")
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+        guard let mtime else { patchedMemo[name] = nil; return nil }
+        if let hit = patchedMemo[name], hit.0 == mtime { return hit.1 }
         guard let data = try? Data(contentsOf: file),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               root["layers"] != nil else {
             // Missing or corrupt cache: drop it so it regenerates cleanly
             // instead of feeding the map a broken style at launch.
             try? FileManager.default.removeItem(at: file)
+            patchedMemo[name] = nil
             return nil
         }
+        patchedMemo[name] = (mtime, file)
         return file
     }
 
@@ -97,7 +114,7 @@ enum MapStyleKind: String, CaseIterable {
     /// pale-green land, powder-blue water, cream buildings — with the
     /// same Arabic label rule. Cached like the other patched styles.
     static func preparePastelStyle() {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = MapStyleKind.styleDir
         let file = dir.appendingPathComponent("wijhati-pastel-ar2.json")
         if FileManager.default.fileExists(atPath: file.path) { return }
         guard let remote = URL(string: "https://tiles.openfreemap.org/styles/positron") else { return }
@@ -135,7 +152,7 @@ enum MapStyleKind: String, CaseIterable {
         preparePastelStyle()
         for name in ["liberty", "positron", "bright", "dark"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
-            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let dir = MapStyleKind.styleDir
             let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
             if FileManager.default.fileExists(atPath: file.path) { continue }
             URLSession.shared.dataTask(with: remote) { data, _, _ in
@@ -157,7 +174,7 @@ enum MapStyleKind: String, CaseIterable {
         // MapTiler (streets-v2): same OpenMapTiles name fields, so the
         // same Arabic label rule applies. Only when a key is configured.
         if let remote = maptilerRemoteURL {
-            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let dir = MapStyleKind.styleDir
             let file = dir.appendingPathComponent("wijhati-maptiler-ar2.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
@@ -179,7 +196,7 @@ enum MapStyleKind: String, CaseIterable {
         }
         // MapTiler Pastel: the designed signature style — same label patch.
         if let remote = maptilerPastelRemoteURL {
-            let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let dir = MapStyleKind.styleDir
             let file = dir.appendingPathComponent("wijhati-mtpastel2-ar2.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
@@ -251,6 +268,7 @@ struct MapBridge: UIViewRepresentable {
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         map.showsUserLocation = true
         map.prefetchesTiles = true
         map.compassView.isHidden = true
@@ -331,6 +349,18 @@ struct MapBridge: UIViewRepresentable {
         var lastNorthReset: Int = 0
         var failedStyle: MapStyleKind?
         var was3DOn = false
+        @objc func appBecameActive() {
+            guard let map else { return }
+            // Came back from the background with no live style (its local
+            // file was purged, or the GL surface returned empty): reload.
+            if map.style == nil {
+                map.styleURL = parent.styleKind.url
+            } else if let u = map.styleURL, u.isFileURL,
+                      !FileManager.default.fileExists(atPath: u.path) {
+                map.styleURL = parent.styleKind.url
+            }
+        }
+
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             parent.onMapTap()
         }
