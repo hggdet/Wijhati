@@ -2,10 +2,11 @@ import SwiftUI
 import MapLibre
 
 enum MapStyleKind: String, CaseIterable {
-    case standard, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
+    case standard, pastel, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
     var label: String {
         switch self {
         case .standard: return "قياسية".loc
+        case .pastel: return "باستيل".loc
         case .bright: return "فاتحة".loc
         case .ofmBright: return "زاهية".loc
         case .dark: return "ليلي".loc
@@ -18,6 +19,7 @@ enum MapStyleKind: String, CaseIterable {
     var url: URL? {
         switch self {
         case .standard: return Self.patchedStyleFile("liberty") ?? URL(string: "https://tiles.openfreemap.org/styles/liberty")
+        case .pastel: return Self.patchedStyleFile("pastel") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
@@ -76,7 +78,46 @@ enum MapStyleKind: String, CaseIterable {
                 ["coalesce", ["get", "name:ar"], name]] as [Any]
     }
 
+    /// Pastel map (the signature look): positron recoloured soft —
+    /// pale-green land, powder-blue water, cream buildings — with the
+    /// same Arabic label rule. Cached like the other patched styles.
+    static func preparePastelStyle() {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let file = dir.appendingPathComponent("wijhati-pastel-ar2.json")
+        if FileManager.default.fileExists(atPath: file.path) { return }
+        guard let remote = URL(string: "https://tiles.openfreemap.org/styles/positron") else { return }
+        URLSession.shared.dataTask(with: remote) { data, _, _ in
+            guard let data,
+                  var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  var layers = root["layers"] as? [[String: Any]] else { return }
+            let fills: [String: String] = [
+                "park": "#D9F0C0", "landcover_wood": "#CDEBB4",
+                "water": "#B9DFF6", "landuse_residential": "#F5F1E8",
+                "building": "#F0E6D6",
+            ]
+            for i in layers.indices {
+                let id = layers[i]["id"] as? String ?? ""
+                var paint = layers[i]["paint"] as? [String: Any] ?? [:]
+                if id == "background" { paint["background-color"] = "#EDF5E2"; layers[i]["paint"] = paint }
+                if let hex = fills[id] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
+                if id == "waterway" { paint["line-color"] = "#B9DFF6"; layers[i]["paint"] = paint }
+                if var layout = layers[i]["layout"] as? [String: Any], layout["text-field"] != nil {
+                    layout["text-field"] = arabicNameExpression()
+                    layers[i]["layout"] = layout
+                    paint["text-color"] = "#4F5D4E"
+                    paint["text-halo-color"] = "#FFFFFF"
+                    layers[i]["paint"] = paint
+                }
+            }
+            root["layers"] = layers
+            if let out = try? JSONSerialization.data(withJSONObject: root) {
+                try? out.write(to: file, options: .atomic)
+            }
+        }.resume()
+    }
+
     static func prepareArabicStyles() {
+        preparePastelStyle()
         for name in ["liberty", "positron", "bright", "dark"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
             let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -460,9 +501,9 @@ struct MapBridge: UIViewRepresentable {
                     // cooler steel for towers) — the "detailed 3D city"
                     // look from the post, from open data.
                     if isShortbread {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#d8d0c0", 15, "#bfc7d1", 40, "#93a9c2", 90, "#6886a8"] as [Any])
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#f6ecda", 15, "#eeddc0", 40, "#d9e4ee", 90, "#aec6de"] as [Any])
                     } else {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#d8d0c0", 15, "#bfc7d1", 40, "#93a9c2", 90, "#6886a8"] as [Any])
+                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#f6ecda", 15, "#eeddc0", 40, "#d9e4ee", 90, "#aec6de"] as [Any])
                     }
                     layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.88)
                     layer.minimumZoomLevel = 15
