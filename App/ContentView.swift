@@ -1635,6 +1635,17 @@ struct ContentView: View {
         if showSearch || !suggestions.isEmpty || searchPins.contains(where: { $0.id == place.id }) {
             historyStore.add(place)
         }
+        if selected?.id != place.id {
+            // Invalidate any in-flight route for the previous destination.
+            // Otherwise its delayed network response can redraw a stale route.
+            routeGeneration += 1
+            loadingRoute = false
+            routes = []
+            selectedRouteIndex = 0
+            elevations = []
+            offRouteCount = 0
+            voice.stop()
+        }
         showSearch = false
         routeNotice = nil
         placeSheetFull = false
@@ -1736,6 +1747,12 @@ struct ContentView: View {
     }
 
     private func clearRoute() {
+        // A route request may still be waiting on the routing service.
+        // Incrementing the generation prevents that response from reviving
+        // the route after the user explicitly cleared it.
+        routeGeneration += 1
+        loadingRoute = false
+        offRouteCount = 0
         routes = []
         elevations = []
         voice.stop()
