@@ -5,32 +5,47 @@ enum GeoService {
 
     // MARK: - Search (Photon + Nominatim, relevance-ranked)
 
-    private static var resultCache: [String: [Place]] = [:]
+    private struct SearchCacheEntry {
+        let storedAt: Date
+        let places: [Place]
+    }
+    private static var resultCache: [String: SearchCacheEntry] = [:]
     private static let resultCacheLock = NSLock()
+    private static let resultCacheTTL: TimeInterval = 300
 
-    static func search(_ query: String, near: CLLocationCoordinate2D?, limit: Int = 8) async -> [Place] {
+    static func search(_ query: String, near: CLLocationCoordinate2D?, limit: Int = 8,
+                       includeFallback: Bool = true, timeout: TimeInterval = 20) async -> [Place] {
+        let safeLimit = max(1, limit)
         let cacheKey = normalizeArabic(query) + "|" + (near.map { "\(Int($0.latitude * 50)),\(Int($0.longitude * 50))" } ?? "-")
+            + "|\(safeLimit)|fallback:\(includeFallback)"
         resultCacheLock.lock()
+        let now = Date()
+        resultCache = resultCache.filter { now.timeIntervalSince($0.value.storedAt) < resultCacheTTL }
         let hit = resultCache[cacheKey]
         resultCacheLock.unlock()
-        if let hit { return hit }
+        if let hit { return hit.places }
 
         // Pool every dialect variant IN PARALLEL instead of returning
         // the first non-empty one — a weak early match used to hide
         // better results, and sequential calls made suggestions crawl.
-        let variants = Array(searchVariants(query).prefix(3))
+        // Autocomplete favors the first useful response and can rely on
+        // local matches while typing; full searches retain dialect expansion.
+        let variantLimit = includeFallback ? 3 : 1
+        let variants = Array(searchVariants(query).prefix(variantLimit))
         var pool: [Place] = []
         await withTaskGroup(of: [Place].self) { group in
             for variant in variants {
-                group.addTask { await photonSearch(variant, near: near, limit: limit) }
+                group.addTask { await photonSearch(variant, near: near, limit: safeLimit, timeout: timeout) }
             }
             for await part in group { pool += part }
         }
+        guard !Task.isCancelled else { return [] }
         // Second engine: Nominatim's structured index covers Iraqi
         // places Photon misses, and its results carry full addresses.
-        if pool.count < 5 {
-            pool += await nominatimSearch(query, limit: limit)
+        if includeFallback, pool.count < 5, !Task.isCancelled {
+            pool += await nominatimSearch(query, limit: safeLimit)
         }
+        guard !Task.isCancelled else { return [] }
         var seen = Set<String>()
         var unique: [Place] = []
         for p in pool {
@@ -38,11 +53,18 @@ enum GeoService {
             if seen.insert(k).inserted { unique.append(p) }
         }
         let ranked = unique.sorted { relevance($0, query: query, near: near) > relevance($1, query: query, near: near) }
-        let out = Array(ranked.prefix(limit))
-        resultCacheLock.lock()
-        resultCache[cacheKey] = out
-        if resultCache.count > 60 { resultCache.removeAll() }
-        resultCacheLock.unlock()
+        let out = Array(ranked.prefix(safeLimit))
+        if !out.isEmpty {
+            resultCacheLock.lock()
+            let storedAt = Date()
+            resultCache = resultCache.filter { storedAt.timeIntervalSince($0.value.storedAt) < resultCacheTTL }
+            if resultCache.count >= 60,
+               let oldestKey = resultCache.min(by: { $0.value.storedAt < $1.value.storedAt })?.key {
+                resultCache.removeValue(forKey: oldestKey)
+            }
+            resultCache[cacheKey] = SearchCacheEntry(storedAt: storedAt, places: out)
+            resultCacheLock.unlock()
+        }
         return out
     }
 
@@ -114,7 +136,8 @@ enum GeoService {
         return nil
     }
 
-    private static func photonSearch(_ query: String, near: CLLocationCoordinate2D?, limit: Int) async -> [Place] {
+    private static func photonSearch(_ query: String, near: CLLocationCoordinate2D?, limit: Int,
+                                     timeout: TimeInterval) async -> [Place] {
         var comps = URLComponents(string: "https://photon.komoot.io/api/")!
         var items = [URLQueryItem(name: "q", value: query),
                      URLQueryItem(name: "limit", value: "\(limit)"),
@@ -124,7 +147,7 @@ enum GeoService {
             items.append(URLQueryItem(name: "lon", value: "\(near.longitude)"))
         }
         comps.queryItems = items
-        guard let url = comps.url, let root = await getJSON(url) as? [String: Any],
+        guard let url = comps.url, let root = await getJSON(url, timeout: timeout) as? [String: Any],
               let features = root["features"] as? [[String: Any]] else { return [] }
         var results: [Place] = []
         for f in features {
@@ -688,12 +711,12 @@ enum GeoService {
     }
 
     // MARK: - HTTP helpers
-    static func getJSON(_ url: URL) async -> Any? {
+    static func getJSON(_ url: URL, timeout: TimeInterval = 20) async -> Any? {
         // A real User-Agent + a sane timeout: Nominatim/Photon ask for an
         // identifying UA, and the shared session's 60 s default can leave
         // the UI hanging on a dead connection.
         var request = URLRequest(url: url)
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue("Wijhati/1.34 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
         do {
             let (data, _) = try await URLSession.shared.data(for: request)

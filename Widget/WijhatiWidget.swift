@@ -34,8 +34,12 @@ struct QuickWidgetView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("وجهتي").font(.caption.weight(.black)).foregroundStyle(.secondary)
             if entry.homeName == nil && entry.workName == nil {
-                Text("عيّن البيت والشغل من داخل التطبيق حتى تصلهم من هنا بضغطة.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("عيّن البيت والشغل من داخل التطبيق حتى تصلهم من هنا بضغطة.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Link("افتح التطبيق للإعداد", destination: URL(string: "wijhati://setup")!)
+                        .font(.caption.weight(.bold))
+                }
             }
             if let home = entry.homeName {
                 Link(destination: URL(string: "wijhati://home")!) {
