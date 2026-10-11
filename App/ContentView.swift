@@ -221,7 +221,6 @@ struct ContentView: View {
                     if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                     Spacer()
                     HStack {
-                        Spacer()
                         VStack(spacing: 10) {
                             Button { centerOnMyLocation() } label: {
                                 mapToolLabel(icon: "location.fill", title: "موقعي".loc,
@@ -240,6 +239,7 @@ struct ContentView: View {
                                 .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
                             }
                         }
+                        Spacer()
                     }
                     .transition(.opacity)
                     .environment(\.layoutDirection, .leftToRight)
