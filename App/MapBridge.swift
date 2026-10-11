@@ -28,7 +28,7 @@ enum MapStyleKind: String, CaseIterable {
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
-        case .mtPastel: return Self.patchedStyleFile("mtpastel2") ?? Self.maptilerPastelRemoteURL
+        case .mtPastel: return Self.patchedStyleFile("mtpastel3") ?? Self.maptilerPastelRemoteURL
         }
     }
     var isRaster: Bool { self == .cartoon || self == .satellite }
@@ -80,7 +80,7 @@ enum MapStyleKind: String, CaseIterable {
     private static var patchedMemo: [String: (Date, URL)] = [:]
 
     private static func patchedStyleFile(_ name: String) -> URL? {
-        let file = styleDir.appendingPathComponent("wijhati-\(name)-ar2.json")
+        let file = styleDir.appendingPathComponent("wijhati-\(name)-ar3.json")
         let mtime = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
         guard let mtime else { patchedMemo[name] = nil; return nil }
         if let hit = patchedMemo[name], hit.0 == mtime { return hit.1 }
@@ -115,7 +115,7 @@ enum MapStyleKind: String, CaseIterable {
     /// same Arabic label rule. Cached like the other patched styles.
     static func preparePastelStyle() {
         let dir = MapStyleKind.styleDir
-        let file = dir.appendingPathComponent("wijhati-pastel-ar2.json")
+        let file = dir.appendingPathComponent("wijhati-pastel-ar3.json")
         if FileManager.default.fileExists(atPath: file.path) { return }
         guard let remote = URL(string: "https://tiles.openfreemap.org/styles/positron") else { return }
         URLSession.shared.dataTask(with: remote) { data, _, _ in
@@ -123,16 +123,16 @@ enum MapStyleKind: String, CaseIterable {
                   var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   var layers = root["layers"] as? [[String: Any]] else { return }
             let fills: [String: String] = [
-                "park": "#D9F0C0", "landcover_wood": "#CDEBB4",
-                "water": "#B9DFF6", "landuse_residential": "#F5F1E8",
-                "building": "#F0E6D6",
+                "park": "#C3E2AD", "landcover_wood": "#ADD39F",
+                "water": "#A9DDEB", "landuse_residential": "#F3EEDC",
+                "building": "#EADFCB",
             ]
             for i in layers.indices {
                 let id = layers[i]["id"] as? String ?? ""
                 var paint = layers[i]["paint"] as? [String: Any] ?? [:]
-                if id == "background" { paint["background-color"] = "#EDF5E2"; layers[i]["paint"] = paint }
+                if id == "background" { paint["background-color"] = "#EEF3DF"; layers[i]["paint"] = paint }
                 if let hex = fills[id] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
-                if id == "waterway" { paint["line-color"] = "#B9DFF6"; layers[i]["paint"] = paint }
+                if id == "waterway" { paint["line-color"] = "#A9DDEB"; layers[i]["paint"] = paint }
                 if var layout = layers[i]["layout"] as? [String: Any], layout["text-field"] != nil {
                     layout["text-field"] = arabicNameExpression()
                     layers[i]["layout"] = layout
@@ -153,7 +153,7 @@ enum MapStyleKind: String, CaseIterable {
         for name in ["liberty", "positron", "bright", "dark"] {
             guard let remote = URL(string: "https://tiles.openfreemap.org/styles/\(name)") else { continue }
             let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-\(name)-ar2.json")
+            let file = dir.appendingPathComponent("wijhati-\(name)-ar3.json")
             if FileManager.default.fileExists(atPath: file.path) { continue }
             URLSession.shared.dataTask(with: remote) { data, _, _ in
                 guard let data,
@@ -175,7 +175,7 @@ enum MapStyleKind: String, CaseIterable {
         // same Arabic label rule applies. Only when a key is configured.
         if let remote = maptilerRemoteURL {
             let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-maptiler-ar2.json")
+            let file = dir.appendingPathComponent("wijhati-maptiler-ar3.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
                     guard let data,
@@ -197,7 +197,7 @@ enum MapStyleKind: String, CaseIterable {
         // MapTiler Pastel: the designed signature style — same label patch.
         if let remote = maptilerPastelRemoteURL {
             let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-mtpastel2-ar2.json")
+            let file = dir.appendingPathComponent("wijhati-mtpastel3-ar3.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
                     guard let data,
@@ -210,18 +210,18 @@ enum MapStyleKind: String, CaseIterable {
                         layers[i]["layout"] = layout
                     }
                     let fillColors: [String: String] = [
-                        "water": "#2F9BE8",
-                        "landcover_grass": "#93CC7A", "globallandcover_grass": "#93CC7A",
-                        "landcover_wood": "#5FAE5F", "globallandcover_wood": "#5FAE5F",
-                        "landuse_parks": "#8FD07E", "landuse_residential": "#F6F1E3",
-                        "building": "#F0E4CC",
+                        "water": "#A9DDEB",
+                        "landcover_grass": "#CBE7B6", "globallandcover_grass": "#CBE7B6",
+                        "landcover_wood": "#ADD39F", "globallandcover_wood": "#ADD39F",
+                        "landuse_parks": "#C3E2AD", "landuse_residential": "#F3EEDC",
+                        "building": "#EADFCB",
                     ]
                     for i in layers.indices {
                         let layerID = layers[i]["id"] as? String ?? ""
                         var paint = layers[i]["paint"] as? [String: Any] ?? [:]
-                        if layerID == "background" { paint["background-color"] = "#E9F3DD"; layers[i]["paint"] = paint }
+                        if layerID == "background" { paint["background-color"] = "#EEF3DF"; layers[i]["paint"] = paint }
                         if let hex = fillColors[layerID] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
-                        if layerID == "waterway" { paint["line-color"] = "#2F9BE8"; layers[i]["paint"] = paint }
+                        if layerID == "waterway" { paint["line-color"] = "#A9DDEB"; layers[i]["paint"] = paint }
                     }
                     root["layers"] = layers
                     if let out = try? JSONSerialization.data(withJSONObject: root) {
