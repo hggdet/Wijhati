@@ -69,7 +69,7 @@ struct ContentView: View {
     @State private var searching = false
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .pastel
+    @State private var styleKind: MapStyleKind = .mtPastel
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var northReset = 0
@@ -132,7 +132,7 @@ struct ContentView: View {
                 autoDark = true
             }
         } else if autoDark {
-            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .pastel
+            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .mtPastel
             autoDark = false
         }
     }
@@ -1284,7 +1284,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.57").foregroundStyle(.secondary) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.58").foregroundStyle(.secondary) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(.secondary) }
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(.secondary) }
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(.secondary) }
