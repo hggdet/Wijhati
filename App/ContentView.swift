@@ -52,6 +52,7 @@ struct ContentView: View {
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("wijhati.voiceVolume") private var voiceVolume: Double = 1.0
     @AppStorage("wijhati.distanceUnit") private var distanceUnit = "auto"
     @AppStorage("wijhati.notifSaved") private var notifSaved = false
@@ -167,7 +168,7 @@ struct ContentView: View {
         return "\(Int(celsius.rounded()))°C"
     }
 
-    var body: some View {
+    private var mapComposition: some View {
         ZStack {
             MapBridge(
                 pins: allPins,
@@ -177,6 +178,7 @@ struct ContentView: View {
                 styleKind: styleKind,
                 show3D: show3D,
                 followUser: followUser,
+                isAppActive: scenePhase == .active,
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
                 bearingRequest: nil,
@@ -219,7 +221,6 @@ struct ContentView: View {
                     if showWeatherDetail, let w = localWeather { weatherDetailCard(w) }
                     Spacer()
                     HStack {
-                        Spacer()
                         VStack(spacing: 10) {
                             Button { centerOnMyLocation() } label: {
                                 mapToolLabel(icon: "location.fill", title: "موقعي".loc,
@@ -238,6 +239,7 @@ struct ContentView: View {
                                 .accessibilityValue(show3D ? "مفعّلة".loc : "متوقفة".loc)
                             }
                         }
+                        Spacer()
                     }
                     .transition(.opacity)
                     .environment(\.layoutDirection, .leftToRight)
@@ -254,7 +256,12 @@ struct ContentView: View {
             if voice.active { pocketOverlay }
             if showIntro { WorldIntroView().contentShape(Rectangle()).onTapGesture { withAnimation(.easeOut(duration: 0.4)) { showIntro = false } } }
         }
+    }
+
+    private var lifecycleContent: some View {
+        mapComposition
         .onAppear {
+            locationService.setAppActive(scenePhase == .active)
             locationService.request()
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
@@ -291,6 +298,20 @@ struct ContentView: View {
                 showLocationNotice("اسمح بالوصول إلى الموقع من إعدادات الآيفون.".loc)
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            locationService.setAppActive(phase == .active)
+        }
+        .onChange(of: voice.active) { _, active in
+            locationService.setNavigationActive(active)
+            followUser = active
+        }
+        .onChange(of: showAR) { _, active in
+            locationService.setCameraNavigationActive(active)
+        }
+    }
+
+    private var styledContent: some View {
+        lifecycleContent
         .preferredColorScheme(schemeOverride)
         .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .environment(\.locale, Locale(identifier: language == "ku" ? "ckb" : language))
@@ -320,6 +341,10 @@ struct ContentView: View {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-mtpastel3-ar3.json"))
             MapStyleKind.prepareArabicStyles()
         }
+    }
+
+    private var presentedContent: some View {
+        styledContent
         .sheet(isPresented: $showSaved) { savedSheet }
         .sheet(isPresented: $showDirections) { directionsSheet }
         .fullScreenCover(isPresented: $showAR) {
@@ -361,6 +386,10 @@ struct ContentView: View {
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
+    }
+
+    var body: some View {
+        presentedContent
     }
 
     @ViewBuilder
