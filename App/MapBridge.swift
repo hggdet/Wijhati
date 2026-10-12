@@ -1,8 +1,7 @@
 import SwiftUI
 import MapLibre
-
 enum MapStyleKind: String, CaseIterable {
-    case standard, pastel, mtPastel, bright, ofmBright, dark, ofmDark, cartoon, satellite, maptiler
+    case standard, pastel, mtPastel, bright, ofmBright, dark, ofmDark, cinematic, cartoon, satellite, maptiler
     var label: String {
         switch self {
         case .standard: return "قياسية".loc
@@ -12,6 +11,7 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmBright: return "زاهية".loc
         case .dark: return "ليلي".loc
         case .ofmDark: return "داكن".loc
+        case .cinematic: return "ليلي سينمائي".loc
         case .cartoon: return "كرتونية".loc
         case .satellite: return "قمر صناعي".loc
         case .maptiler: return "MapTiler"
@@ -25,6 +25,7 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .ofmDark: return Self.patchedStyleFile("darkmiru") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
+        case .cinematic: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cinematic-style.json")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
@@ -41,6 +42,7 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmBright: return URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .ofmDark: return URL(string: "https://tiles.openfreemap.org/styles/dark")
+        case .cinematic: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cinematic-style.json")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.maptilerRemoteURL
@@ -404,6 +406,14 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.usingFallbackStyle = false
             context.coordinator.currentStyle = styleKind
             context.coordinator.styleReady = false
+            if styleKind == .cinematic {
+                context.coordinator.was3DOn = false
+                if show3D && map.zoomLevel >= 13.5 {
+                    var camera = map.camera
+                    camera.pitch = max(camera.pitch, 56)
+                    map.setCamera(camera, animated: true)
+                }
+            }
             map.styleURL = styleKind.url ?? MapStyleKind.standard.url
             context.coordinator.armWatchdog(stage: 0)
         }
@@ -781,7 +791,10 @@ struct MapBridge: UIViewRepresentable {
                     style.addSource(source)
                     if id == "route" {
                         let halo = MLNLineStyleLayer(identifier: "\(id)-halo-layer", source: source)
-                        halo.lineColor = NSExpression(forConstantValue: UIColor(red: 1.0, green: 0.91, blue: 0.70, alpha: 0.96))
+                        let haloColor = currentStyle == .cinematic
+                            ? UIColor(red: 1.0, green: 0.66, blue: 0.28, alpha: 0.96)
+                            : UIColor(red: 1.0, green: 0.91, blue: 0.70, alpha: 0.96)
+                        halo.lineColor = NSExpression(forConstantValue: haloColor)
                         halo.lineWidth = NSExpression(forConstantValue: 11.0)
                         halo.lineOpacity = NSExpression(forConstantValue: 0.92)
                         halo.lineCap = NSExpression(forConstantValue: "round")
@@ -789,9 +802,14 @@ struct MapBridge: UIViewRepresentable {
                         style.addLayer(halo)
                     }
                     let layer = MLNLineStyleLayer(identifier: "\(id)-layer", source: source)
-                    let routeColor = id == "route"
-                        ? UIColor(red: 0.96, green: 0.39, blue: 0.16, alpha: 1)
-                        : color
+                    let routeColor: UIColor
+                    if id == "route" {
+                        routeColor = currentStyle == .cinematic
+                            ? UIColor(red: 1.0, green: 0.72, blue: 0.34, alpha: 1)
+                            : UIColor(red: 0.96, green: 0.39, blue: 0.16, alpha: 1)
+                    } else {
+                        routeColor = color
+                    }
                     layer.lineColor = NSExpression(forConstantValue: routeColor)
                     layer.lineWidth = NSExpression(forConstantValue: width)
                     layer.lineOpacity = NSExpression(forConstantValue: opacity)
@@ -818,8 +836,13 @@ struct MapBridge: UIViewRepresentable {
             layer.text = NSExpression(forKeyPath: "name")
             layer.textFontNames = NSExpression(forConstantValue: ["noto_sans_regular"])
             layer.textFontSize = NSExpression(forConstantValue: 12)
-            layer.textColor = NSExpression(forConstantValue: UIColor(red: 0.15, green: 0.15, blue: 0.2, alpha: 1))
-            layer.textHaloColor = NSExpression(forConstantValue: UIColor.white.withAlphaComponent(0.9))
+            let cinematic = currentStyle == .cinematic
+            layer.textColor = NSExpression(forConstantValue: cinematic
+                ? UIColor(red: 0.90, green: 0.84, blue: 0.69, alpha: 1)
+                : UIColor(red: 0.15, green: 0.15, blue: 0.2, alpha: 1))
+            layer.textHaloColor = NSExpression(forConstantValue: cinematic
+                ? UIColor(red: 0.06, green: 0.08, blue: 0.14, alpha: 0.96)
+                : UIColor.white.withAlphaComponent(0.9))
             layer.textHaloWidth = NSExpression(forConstantValue: 1.4)
             layer.minimumZoomLevel = 15
             layer.maximumZoomLevel = 18
@@ -853,9 +876,14 @@ struct MapBridge: UIViewRepresentable {
                     // (verified) — preferring the building's own tagged
                     // colour when the data has one.
                     let night3D = parent.styleKind == .ofmDark || parent.styleKind == .dark
-                    let palette3D: [Any] = night3D
-                        ? ["match", ["%", ["id"], 7], 0, "#2E2C63", 1, "#37356E", 2, "#403E7A", 3, "#2A2A55", 4, "#332F66", 5, "#3B3873", "#282450"] as [Any]
-                        : ["match", ["%", ["id"], 7], 0, "#EEDFC8", 1, "#F5F1EA", 2, "#EFD2B4", 3, "#BFD2E8", 4, "#C2DED2", 5, "#EBCBCB", "#E3CFA5"] as [Any]
+                    let palette3D: [Any]
+                    if parent.styleKind == .cinematic {
+                        palette3D = ["match", ["%", ["id"], 7], 0, "#302E5E", 1, "#744632", 2, "#39366C", 3, "#28264F", 4, "#8A5032", 5, "#433B70", "#252349"] as [Any]
+                    } else if night3D {
+                        palette3D = ["match", ["%", ["id"], 7], 0, "#2E2C63", 1, "#37356E", 2, "#403E7A", 3, "#2A2A55", 4, "#332F66", 5, "#3B3873", "#282450"] as [Any]
+                    } else {
+                        palette3D = ["match", ["%", ["id"], 7], 0, "#EEDFC8", 1, "#F5F1EA", 2, "#EFD2B4", 3, "#BFD2E8", 4, "#C2DED2", 5, "#EBCBCB", "#E3CFA5"] as [Any]
+                    }
                     layer.fillExtrusionColor = NSExpression(mglJSONObject: ["coalesce", ["get", "colour"], palette3D] as [Any])
                     layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.95)
                     layer.minimumZoomLevel = 15
@@ -873,7 +901,8 @@ struct MapBridge: UIViewRepresentable {
                     // the camera away from a world/regional view.
                     if map.zoomLevel >= 13.5 {
                         if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
-                        if map.camera.pitch < 50 { var cam = map.camera; cam.pitch = 50; map.setCamera(cam, animated: true) }
+                        let targetPitch: CGFloat = parent.styleKind == .cinematic ? 56 : 50
+                        if map.camera.pitch < targetPitch { var cam = map.camera; cam.pitch = targetPitch; map.setCamera(cam, animated: true) }
                     }
                 }
             } else {
