@@ -24,11 +24,11 @@ enum MapStyleKind: String, CaseIterable {
         case .bright: return Self.patchedStyleFile("positron") ?? URL(string: "https://tiles.openfreemap.org/styles/positron")
         case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
-        case .ofmDark: return Self.patchedStyleFile("dark") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
+        case .ofmDark: return Self.patchedStyleFile("darkmiru") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
         case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
-        case .mtPastel: return Self.patchedStyleFile("mtpastel3") ?? Self.maptilerPastelRemoteURL
+        case .mtPastel: return Self.patchedStyleFile("mtpastel4") ?? Self.maptilerPastelRemoteURL
         }
     }
     /// The unpatched remote equivalent of each style, used by the
@@ -182,9 +182,50 @@ enum MapStyleKind: String, CaseIterable {
                     layout["text-field"] = arabicNameExpression()
                     layers[i]["layout"] = layout
                 }
+                if name == "dark" {
+                    // Miru night: deep indigo city, near-black blue
+                    // water, warm street-light glow under major roads.
+                    let darkFills: [String: String] = [
+                        "water": "#152533", "landuse_residential": "#262457",
+                        "landcover_wood": "#1D2B22", "landuse_park": "#1D2B22",
+                        "building": "#2A294D", "road_area_pier": "#1B1B40",
+                    ]
+                    let darkLines: [String: String] = [
+                        "waterway": "#152533", "highway_minor": "#23234E",
+                        "highway_major_inner": "#2A2A5E", "highway_motorway_inner": "#2A2A5E",
+                        "highway_major_casing": "#191938", "highway_motorway_casing": "#191938",
+                        "highway_major_subtle": "#1B1B40", "highway_motorway_subtle": "#23234E",
+                        "road_pier": "#1B1B40",
+                    ]
+                    for i in layers.indices {
+                        let layerID = layers[i]["id"] as? String ?? ""
+                        var paint = layers[i]["paint"] as? [String: Any] ?? [:]
+                        if layerID == "background" { paint["background-color"] = "#23204D"; layers[i]["paint"] = paint }
+                        if let hex = darkFills[layerID] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
+                        if let hex = darkLines[layerID] { paint["line-color"] = hex; layers[i]["paint"] = paint }
+                        if layerID == "building" { paint["fill-outline-color"] = "#191938"; layers[i]["paint"] = paint }
+                        if (layers[i]["type"] as? String) == "symbol" {
+                            paint["text-color"] = "#EDEDF7"; paint["text-halo-color"] = "#14142E"; layers[i]["paint"] = paint
+                        }
+                    }
+                    if let glowAt = layers.firstIndex(where: { ($0["id"] as? String ?? "").hasPrefix("highway") }) {
+                        let glow: [String: Any] = [
+                            "id": "wijhati-road-glow", "type": "line", "source": "openmaptiles",
+                            "source-layer": "transportation",
+                            "filter": ["in", ["get", "class"], ["literal", ["motorway", "trunk", "primary"]]] as [Any],
+                            "layout": ["line-cap": "round", "line-join": "round"] as [String: Any],
+                            "paint": ["line-color": "#E8933A", "line-opacity": 0.35, "line-blur": 8,
+                                      "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 10] as [Any]] as [String: Any],
+                        ]
+                        layers.insert(glow, at: glowAt)
+                    }
+                }
                 root["layers"] = layers
                 if let out = try? JSONSerialization.data(withJSONObject: root) {
                     try? out.write(to: file, options: .atomic)
+                    if name == "dark" {
+                        try? out.write(to: dir.appendingPathComponent("wijhati-darkmiru-ar3.json"), options: .atomic)
+                    }
                 }
             }.resume()
         }
@@ -214,7 +255,7 @@ enum MapStyleKind: String, CaseIterable {
         // MapTiler Pastel: the designed signature style — same label patch.
         if let remote = maptilerPastelRemoteURL {
             let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-mtpastel3-ar3.json")
+            let file = dir.appendingPathComponent("wijhati-mtpastel4-ar3.json")
             if !FileManager.default.fileExists(atPath: file.path) {
                 URLSession.shared.dataTask(with: remote) { data, _, _ in
                     guard let data,
@@ -226,19 +267,33 @@ enum MapStyleKind: String, CaseIterable {
                         layout["text-field"] = arabicNameExpression()
                         layers[i]["layout"] = layout
                     }
+                    // Miru-style toy-city palette (measured from the
+                    // reference videos): warm cream land, turquoise
+                    // water, saturated lime green, mauve-gray roads.
                     let fillColors: [String: String] = [
-                        "water": "#A9DDEB",
-                        "landcover_grass": "#CBE7B6", "globallandcover_grass": "#CBE7B6",
-                        "landcover_wood": "#ADD39F", "globallandcover_wood": "#ADD39F",
-                        "landuse_parks": "#C3E2AD", "landuse_residential": "#F3EEDC",
-                        "building": "#EADFCB",
+                        "water": "#45B8C9",
+                        "landcover_grass": "#87C816", "globallandcover_grass": "#87C816",
+                        "landcover_wood": "#5E9E3E", "globallandcover_wood": "#5E9E3E",
+                        "landuse_parks": "#87C816", "landuse_residential": "#E8DBC6",
+                        "building": "#D8CBB6",
                     ]
+                    let lineColors: [String: String] = [
+                        "road_minor": "#A9A49E", "road_secondary_tertiary": "#98928C",
+                        "road_trunk_primary": "#8F8A87", "road_major_motorway": "#847E7A",
+                        "tunnel_minor": "#A9A49E", "tunnel_major": "#8F8A87",
+                        "bridge_minor": "#A9A49E", "bridge_major": "#8F8A87",
+                        "road_pier": "#E8DBC6", "road_area_pier": "#E8DBC6", "road_bridge_area": "#E8DBC6",
+                    ]
+                    let vividGreen: Set<String> = ["landcover_grass", "globallandcover_grass", "landcover_wood", "globallandcover_wood", "landuse_parks"]
                     for i in layers.indices {
                         let layerID = layers[i]["id"] as? String ?? ""
                         var paint = layers[i]["paint"] as? [String: Any] ?? [:]
-                        if layerID == "background" { paint["background-color"] = "#EEF3DF"; layers[i]["paint"] = paint }
+                        if layerID == "background" { paint["background-color"] = "#E5D6C2"; layers[i]["paint"] = paint }
                         if let hex = fillColors[layerID] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
-                        if layerID == "waterway" { paint["line-color"] = "#A9DDEB"; layers[i]["paint"] = paint }
+                        if vividGreen.contains(layerID) { paint["fill-opacity"] = 1.0; layers[i]["paint"] = paint }
+                        if let hex = lineColors[layerID] { paint["line-color"] = hex; layers[i]["paint"] = paint }
+                        if layerID == "waterway" { paint["line-color"] = "#45B8C9"; layers[i]["paint"] = paint }
+                        if (layers[i]["type"] as? String) == "symbol" { paint["text-color"] = "#33373B"; layers[i]["paint"] = paint }
                     }
                     root["layers"] = layers
                     if let out = try? JSONSerialization.data(withJSONObject: root) {
@@ -792,15 +847,17 @@ struct MapBridge: UIViewRepresentable {
                         layer.fillExtrusionHeight = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_height"]] as [Any])
                         layer.fillExtrusionBase = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["zoom"], 15, 0, 15.05, ["get", "render_min_height"]] as [Any])
                     }
-                    // Colour by height (warm stone for low buildings,
-                    // cooler steel for towers) — the "detailed 3D city"
-                    // look from the post, from open data.
-                    if isShortbread {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["coalesce", ["get", "height"], 10], 0, "#f8edd6", 8, "#f2dcae", 20, "#e6c88f", 45, "#cfd9e6", 90, "#9db9da"] as [Any])
-                    } else {
-                        layer.fillExtrusionColor = NSExpression(mglJSONObject: ["interpolate", ["linear"], ["get", "render_height"], 0, "#f8edd6", 8, "#f2dcae", 20, "#e6c88f", 45, "#cfd9e6", 90, "#9db9da"] as [Any])
-                    }
-                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.88)
+                    // Colour per building (Miru toy-city): a fixed
+                    // palette distributed by feature id — every building
+                    // feature in the served tiles carries an id
+                    // (verified) — preferring the building's own tagged
+                    // colour when the data has one.
+                    let night3D = parent.styleKind == .ofmDark || parent.styleKind == .dark
+                    let palette3D: [Any] = night3D
+                        ? ["match", ["%", ["id"], 7], 0, "#2E2C63", 1, "#37356E", 2, "#403E7A", 3, "#2A2A55", 4, "#332F66", 5, "#3B3873", "#282450"] as [Any]
+                        : ["match", ["%", ["id"], 7], 0, "#EEDFC8", 1, "#F5F1EA", 2, "#EFD2B4", 3, "#BFD2E8", 4, "#C2DED2", 5, "#EBCBCB", "#E3CFA5"] as [Any]
+                    layer.fillExtrusionColor = NSExpression(mglJSONObject: ["coalesce", ["get", "colour"], palette3D] as [Any])
+                    layer.fillExtrusionOpacity = NSExpression(forConstantValue: 0.95)
                     layer.minimumZoomLevel = 15
                     // Insert BELOW the label layers so buildings never cover text.
                     if let firstSymbol = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
