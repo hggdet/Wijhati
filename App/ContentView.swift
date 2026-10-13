@@ -128,6 +128,23 @@ struct ContentView: View {
         pins + community.allPlaces.map { $0.asPlace() }
             + (officialEnabled ? official.places : [])
     }
+    /// Keep the field's writing direction tied to the first strong character,
+    /// rather than the app's chrome direction, so Arabic and English searches
+    /// both begin on their natural edge.
+    private var searchTextDirection: LayoutDirection {
+        for scalar in query.unicodeScalars where CharacterSet.letters.contains(scalar) {
+            return Self.isArabicScript(scalar.value) ? .rightToLeft : .leftToRight
+        }
+        return language == "en" ? .leftToRight : .rightToLeft
+    }
+
+    private static func isArabicScript(_ value: UInt32) -> Bool {
+        (0x0600...0x08FF).contains(value)
+            || (0xFB50...0xFDFF).contains(value)
+            || (0xFE70...0xFEFF).contains(value)
+            || (0x1EE00...0x1EEFF).contains(value)
+    }
+
     private var schemeOverride: ColorScheme? {
         if appearance == "dark" { return .dark }
         if appearance == "light" { return .light }
@@ -275,22 +292,6 @@ struct ContentView: View {
             DynamicIslandNoticeOverlay()
                 .zIndex(30)
 
-            Button { showMapAttribution = true } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "map")
-                    Text((mapRecoveryStyle ?? styleKind) == .satellite ? "© Esri" : "© OpenStreetMap")
-                }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(adaptiveInk)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("إسناد الخريطة".loc)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .padding(.trailing, 13)
-            .padding(.bottom, 12)
         }
     }
 
@@ -543,6 +544,9 @@ struct ContentView: View {
                 }
                 Button { showSettings = true } label: {
                     Label("الإعدادات".loc, systemImage: "gearshape")
+                }
+                Button { showMapAttribution = true } label: {
+                    Label("إسناد الخريطة".loc, systemImage: "map")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -827,9 +831,17 @@ struct ContentView: View {
                     .foregroundStyle(Color(red: 0.47, green: 0.34, blue: 0.22))
             }
             .buttonStyle(.plain)
-            TextField("ابحث عن مكان أو عنوان".loc, text: $query)
+            TextField(
+                "ابحث عن مكان أو عنوان".loc,
+                text: $query,
+                prompt: Text("ابحث عن مكان أو عنوان".loc)
+                    .foregroundStyle(adaptiveSecondaryInk)
+            )
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(adaptiveInk)
                 .textFieldStyle(.plain)
+                .multilineTextAlignment(.leading)
+                .environment(\.layoutDirection, searchTextDirection)
                 .focused($overlayFocused)
                 .submitLabel(.search)
                 .onSubmit {
@@ -1654,7 +1666,7 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.1").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.2").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • إسناد مزودي البلاطات حسب النمط")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
