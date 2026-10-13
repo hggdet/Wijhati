@@ -46,7 +46,6 @@ struct ContentView: View {
     @AppStorage("wijhati.language") private var language = "ar"
     @AppStorage("wijhati.voiceID") private var voiceID = ""
     @AppStorage("wijhati.voiceStyle") private var voiceStyle = "calm"
-    @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.officialLayer") private var officialEnabled = true
     @AppStorage("wijhati.azureVoice") private var azureVoice = "ar-IQ-BasselNeural"
     @AppStorage("wijhati.azureRegion") private var azureRegion = "eastus"
@@ -76,7 +75,7 @@ struct ContentView: View {
     @State private var searchGeneration = 0
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .pastel
+    @State private var styleKind: MapStyleKind = .cinematic
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var mapRebuildGeneration = 0
@@ -145,6 +144,13 @@ struct ContentView: View {
         appearance == "dark" || (appearance == "auto" && deviceScheme == .dark)
     }
 
+    private var glassPresetBinding: Binding<Double> {
+        Binding(
+            get: { [0.0, 0.53, 1.0].min { abs($0 - glassLevel) < abs($1 - glassLevel) } ?? 0.53 },
+            set: { glassLevel = $0 }
+        )
+    }
+
     private func syncStyleToScheme() {
         if effectiveDark {
             if styleKind != .dark && styleKind != .ofmDark && styleKind != .cinematic {
@@ -199,7 +205,7 @@ struct ContentView: View {
                 styleKind: mapRecoveryStyle ?? styleKind,
                 show3D: show3D,
                 followUser: followUser,
-                isAppActive: scenePhase == .active,
+                isAppActive: scenePhase == .active && (!showSettings || voice.active),
                 userLocation: locationService.location?.coordinate,
                 centerRequest: centerRequest,
                 bearingRequest: nil,
@@ -260,6 +266,8 @@ struct ContentView: View {
                 .transition(.opacity)
                 .zIndex(20)
             }
+            DynamicIslandNoticeOverlay()
+                .zIndex(30)
         }
     }
 
@@ -354,17 +362,6 @@ struct ContentView: View {
             mapRecoveryStyle = nil
             // A manual style pick always wins over the automatic night sync.
             if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
-            if newKind == .maptiler, MapStyleKind.maptilerKey.isEmpty {
-                routeNotice = "أضف مفتاح MapTiler المجاني من الإعدادات ← الخريطة".loc
-            }
-        }
-        .onChange(of: maptilerKey) { _, _ in
-            // A new key invalidates the cached patched MapTiler style
-            // (its embedded tile/font URLs carry the old key).
-            let dir = MapStyleKind.styleDir
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-maptiler-ar3.json"))
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("wijhati-mtpastel3-ar3.json"))
-            MapStyleKind.prepareArabicStyles()
         }
     }
 
@@ -1540,21 +1537,12 @@ struct ContentView: View {
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
             }
             Section("شفافية الواجهة".loc) {
-                DeferredSettingsSliderRow(
-                    title: "شفافية الواجهة".loc,
-                    value: $glassLevel,
-                    range: 0...1,
-                    lowerLabel: "مصمت".loc,
-                    upperLabel: "زجاجي".loc,
-                    formattedValue: { "\(Int($0 * 100))٪" }
-                )
-            }
-            Section("خرائط MapTiler الاختيارية".loc) {
-                SecureField("مفتاح MapTiler".loc, text: $maptilerKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Text("أدخل مفتاحك إذا أردت استخدام أنماط MapTiler؛ من دون مفتاح تبقى الأنماط المجانية متاحة.".loc)
-                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
+                Picker("شفافية الواجهة".loc, selection: glassPresetBinding) {
+                    Text("مصمت".loc).tag(0.0)
+                    Text("متوازن".loc).tag(0.53)
+                    Text("زجاجي".loc).tag(1.0)
+                }
+                .pickerStyle(.menu)
             }
         }
         .navigationTitle("الخريطة".loc)
@@ -1569,7 +1557,7 @@ struct ContentView: View {
                 Label("اضغط مطوّلاً على أي نقطة بالخريطة حتى يثبت دبوس وتطلع بطاقة المكان".loc, systemImage: "mappin.and.ellipse")
                 Label("اسحب بطاقة المكان للأعلى حتى تشوف العنوان الكامل والإحداثيات".loc, systemImage: "square.and.arrow.up.on.square")
                 Label("زر الموقع: ضغطة واحدة تقرّب الكاميرا على موقعك الحالي".loc, systemImage: "location.fill")
-                Label("من الإعدادات ← «الخريطة» شريط «مصمت — زجاجي» يتحكم بشفافية واجهة التطبيق مثلما تتحكم بالصوت".loc, systemImage: "slider.horizontal.3")
+                Label("من الإعدادات ← «الخريطة» اختَر شفافية الواجهة: مصمت، متوازن، أو زجاجي".loc, systemImage: "slider.horizontal.3")
                 Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»".loc, systemImage: "waveform")
                 Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة".loc, systemImage: "house.fill")
                 Label("نزّل خرائط منطقتك من «خرائط بدون إنترنت» حتى تتصفح بدون إنترنت".loc, systemImage: "arrow.down.circle")
@@ -1580,7 +1568,7 @@ struct ContentView: View {
                         .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أبدّل نمط الخريطة؟".loc) {
-                    Text("من الإعدادات ← «الخريطة» تختار النمط (قياسية، فاتحة، زاهية، ليلي، داكن، قمر صناعي) وتفعّل الأبنية ثلاثية الأبعاد.".loc)
+                    Text("من الإعدادات ← «الخريطة» تگدر تغيّر نمط الخريطة؛ السينمائي هو الافتراضي ويظهر المباني 3D عند مستوى المدينة.".loc)
                         .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("هل يشتغل التطبيق بدون إنترنت؟".loc) {
@@ -1641,9 +1629,11 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.63.1").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.0").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
-                Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
+                Text("بيانات الخريطة © مساهمو OpenStreetMap • إسناد مزودي البلاطات حسب النمط")
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
@@ -1948,7 +1938,9 @@ struct ContentView: View {
                 if d < 50, !cooling("saved-\(saved.place.id)") {
                     voice.announce("اقتربت من مكانك المحفوظ: \(saved.place.name)")
                     Notify.fire(title: "وجهتي — مكان محفوظ".loc,
-                                body: "\("اقتربت من مكانك المحفوظ".loc): \(saved.place.name)")
+                                body: "\("اقتربت من مكانك المحفوظ".loc): \(saved.place.name)",
+                                symbol: "bookmark.fill",
+                                tone: .success)
                 }
             }
         }

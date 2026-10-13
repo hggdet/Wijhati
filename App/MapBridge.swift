@@ -1,12 +1,11 @@
 import SwiftUI
 import MapLibre
 enum MapStyleKind: String, CaseIterable {
-    case standard, pastel, mtPastel, bright, ofmBright, dark, ofmDark, cinematic, cartoon, satellite, maptiler
+    case standard, pastel, bright, ofmBright, dark, ofmDark, cinematic, cartoon, satellite
     var label: String {
         switch self {
         case .standard: return "قياسية".loc
         case .pastel: return "باستيل ناعم".loc
-        case .mtPastel: return "باستيل".loc
         case .bright: return "فاتحة".loc
         case .ofmBright: return "زاهية".loc
         case .dark: return "ليلي".loc
@@ -14,7 +13,6 @@ enum MapStyleKind: String, CaseIterable {
         case .cinematic: return "ليلي سينمائي".loc
         case .cartoon: return "كرتونية".loc
         case .satellite: return "قمر صناعي".loc
-        case .maptiler: return "MapTiler"
         }
     }
     var url: URL? {
@@ -25,11 +23,10 @@ enum MapStyleKind: String, CaseIterable {
         case .ofmBright: return Self.patchedStyleFile("bright") ?? URL(string: "https://tiles.openfreemap.org/styles/bright")
         case .dark: return URL(string: "https://tiles.versatiles.org/styles/eclipse/style.json")
         case .ofmDark: return Self.patchedStyleFile("darkmiru") ?? URL(string: "https://tiles.openfreemap.org/styles/dark")
-        case .cinematic: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cinematic-style.json")
+        case .cinematic: return Bundle.main.url(forResource: "cinematic-style", withExtension: "json")
+            ?? URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cinematic-style.json")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
-        case .maptiler: return Self.patchedStyleFile("maptiler") ?? Self.maptilerRemoteURL
-        case .mtPastel: return Self.patchedStyleFile("mtpastel4") ?? Self.maptilerPastelRemoteURL
         }
     }
     /// The unpatched remote equivalent of each style, used by the
@@ -45,31 +42,10 @@ enum MapStyleKind: String, CaseIterable {
         case .cinematic: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cinematic-style.json")
         case .cartoon: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/cartoon-style.json")
         case .satellite: return URL(string: "https://cdn.jsdelivr.net/gh/hggdet/Wijhati@main/App/hybrid-style.json")
-        case .maptiler: return Self.maptilerRemoteURL
-        case .mtPastel: return Self.maptilerPastelRemoteURL
         }
     }
 
     var isRaster: Bool { self == .cartoon || self == .satellite }
-
-    /// The user's free MapTiler API key (Settings ← Map). Empty = the
-    /// MapTiler style has no URL and the map falls back to standard.
-    static var maptilerKey: String {
-        let entered = (UserDefaults.standard.string(forKey: "wijhati.maptilerKey") ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return entered
-    }
-
-    private static var maptilerRemoteURL: URL? {
-        let key = maptilerKey
-        guard !key.isEmpty else { return nil }
-        return URL(string: "https://api.maptiler.com/maps/streets-v2/style.json?key=\(key)")
-    }
-    private static var maptilerPastelRemoteURL: URL? {
-        let key = maptilerKey
-        guard !key.isEmpty else { return nil }
-        return URL(string: "https://api.maptiler.com/maps/pastel/style.json?key=\(key)")
-    }
 
     // OpenFreeMap tiles carry proper Arabic names (name:ar / name).
     // We download the liberty/positron styles once, rewrite every
@@ -226,79 +202,6 @@ enum MapStyleKind: String, CaseIterable {
                 }
             }.resume()
         }
-        // MapTiler (streets-v2): same OpenMapTiles name fields, so the
-        // same Arabic label rule applies. Only when a key is configured.
-        if let remote = maptilerRemoteURL {
-            let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-maptiler-ar3.json")
-            if !FileManager.default.fileExists(atPath: file.path) {
-                URLSession.shared.dataTask(with: remote) { data, _, _ in
-                    guard let data,
-                          var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                          var layers = root["layers"] as? [[String: Any]] else { return }
-                    for i in layers.indices {
-                        guard var layout = layers[i]["layout"] as? [String: Any],
-                              layout["text-field"] != nil else { continue }
-                        layout["text-field"] = arabicNameExpression()
-                        layers[i]["layout"] = layout
-                    }
-                    root["layers"] = layers
-                    if let out = try? JSONSerialization.data(withJSONObject: root) {
-                        try? out.write(to: file, options: .atomic)
-                    }
-                }.resume()
-            }
-        }
-        // MapTiler Pastel: the designed signature style — same label patch.
-        if let remote = maptilerPastelRemoteURL {
-            let dir = MapStyleKind.styleDir
-            let file = dir.appendingPathComponent("wijhati-mtpastel4-ar3.json")
-            if !FileManager.default.fileExists(atPath: file.path) {
-                URLSession.shared.dataTask(with: remote) { data, _, _ in
-                    guard let data,
-                          var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                          var layers = root["layers"] as? [[String: Any]] else { return }
-                    for i in layers.indices {
-                        guard var layout = layers[i]["layout"] as? [String: Any],
-                              layout["text-field"] != nil else { continue }
-                        layout["text-field"] = arabicNameExpression()
-                        layers[i]["layout"] = layout
-                    }
-                    // Miru-style toy-city palette (measured from the
-                    // reference videos): warm cream land, turquoise
-                    // water, saturated lime green, mauve-gray roads.
-                    let fillColors: [String: String] = [
-                        "water": "#45B8C9",
-                        "landcover_grass": "#87C816", "globallandcover_grass": "#87C816",
-                        "landcover_wood": "#5E9E3E", "globallandcover_wood": "#5E9E3E",
-                        "landuse_parks": "#87C816", "landuse_residential": "#E8DBC6",
-                        "building": "#D8CBB6",
-                    ]
-                    let lineColors: [String: String] = [
-                        "road_minor": "#A9A49E", "road_secondary_tertiary": "#98928C",
-                        "road_trunk_primary": "#8F8A87", "road_major_motorway": "#847E7A",
-                        "tunnel_minor": "#A9A49E", "tunnel_major": "#8F8A87",
-                        "bridge_minor": "#A9A49E", "bridge_major": "#8F8A87",
-                        "road_pier": "#E8DBC6", "road_area_pier": "#E8DBC6", "road_bridge_area": "#E8DBC6",
-                    ]
-                    let vividGreen: Set<String> = ["landcover_grass", "globallandcover_grass", "landcover_wood", "globallandcover_wood", "landuse_parks"]
-                    for i in layers.indices {
-                        let layerID = layers[i]["id"] as? String ?? ""
-                        var paint = layers[i]["paint"] as? [String: Any] ?? [:]
-                        if layerID == "background" { paint["background-color"] = "#E5D6C2"; layers[i]["paint"] = paint }
-                        if let hex = fillColors[layerID] { paint["fill-color"] = hex; layers[i]["paint"] = paint }
-                        if vividGreen.contains(layerID) { paint["fill-opacity"] = 1.0; layers[i]["paint"] = paint }
-                        if let hex = lineColors[layerID] { paint["line-color"] = hex; layers[i]["paint"] = paint }
-                        if layerID == "waterway" { paint["line-color"] = "#45B8C9"; layers[i]["paint"] = paint }
-                        if (layers[i]["type"] as? String) == "symbol" { paint["text-color"] = "#33373B"; layers[i]["paint"] = paint }
-                    }
-                    root["layers"] = layers
-                    if let out = try? JSONSerialization.data(withJSONObject: root) {
-                        try? out.write(to: file, options: .atomic)
-                    }
-                }.resume()
-            }
-        }
     }
 
 }
@@ -364,7 +267,8 @@ struct MapBridge: UIViewRepresentable {
         map.logoView.isHidden = false
         map.attributionButton.isHidden = false
         let initialCenter = userLocation ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
-        map.setCenter(initialCenter, zoomLevel: userLocation == nil ? 11 : 15, animated: false)
+        let initialZoom: Double = userLocation == nil ? 11 : (show3D && !styleKind.isRaster ? 16 : 13)
+        map.setCenter(initialCenter, zoomLevel: initialZoom, animated: false)
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleTap(_:)))
         tap.cancelsTouchesInView = false
@@ -406,9 +310,12 @@ struct MapBridge: UIViewRepresentable {
             context.coordinator.styleReady = false
             if styleKind == .cinematic {
                 context.coordinator.was3DOn = false
-                if show3D && map.zoomLevel >= 13.5 {
+                if show3D && !styleKind.isRaster && map.zoomLevel >= 13.0 {
+                    if map.zoomLevel < 15.5 {
+                        map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true)
+                    }
                     var camera = map.camera
-                    camera.pitch = max(camera.pitch, 56)
+                    camera.pitch = max(camera.pitch, 58)
                     map.setCamera(camera, animated: true)
                 }
             }
@@ -426,7 +333,14 @@ struct MapBridge: UIViewRepresentable {
         }
         if let ul = userLocation, !context.coordinator.didCenterOnUser {
             context.coordinator.didCenterOnUser = true
-            map.setCenter(ul, zoomLevel: 13, animated: false)
+            let locationZoom: Double = show3D && !styleKind.isRaster ? 16 : 13
+            map.setCenter(ul, zoomLevel: locationZoom, animated: false)
+            if show3D && !styleKind.isRaster {
+                let targetPitch: CGFloat = styleKind == .cinematic ? 58 : 50
+                var camera = map.camera
+                camera.pitch = max(camera.pitch, targetPitch)
+                map.setCamera(camera, animated: false)
+            }
         }
         if isAppActive && followUser {
             if map.userTrackingMode != .followWithHeading { map.userTrackingMode = .followWithHeading }
@@ -477,6 +391,7 @@ struct MapBridge: UIViewRepresentable {
         private var resumeScheduled = false
         private var lifecycleGeneration = 0
         private var lastReportedAppActive: Bool?
+        private var lastAutoTiltZoom: Double?
 
         func cancelWatchdog() {
             watchdog?.cancel()
@@ -681,6 +596,18 @@ struct MapBridge: UIViewRepresentable {
             refreshLayers(style: style)
         }
 
+        func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+            let zoom = mapView.zoomLevel
+            let zoomChanged = lastAutoTiltZoom.map { abs($0 - zoom) > 0.12 } ?? false
+            lastAutoTiltZoom = zoom
+            guard zoomChanged, parent.show3D, !currentStyle.isRaster, zoom >= 15 else { return }
+            let targetPitch: CGFloat = currentStyle == .cinematic ? 58 : 50
+            guard mapView.camera.pitch < targetPitch else { return }
+            var camera = mapView.camera
+            camera.pitch = targetPitch
+            mapView.setCamera(camera, animated: true)
+        }
+
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool { false }
 
         func mapView(_ mapView: MLNMapView, didSelect annotation: MLNAnnotation) {
@@ -862,7 +789,6 @@ struct MapBridge: UIViewRepresentable {
             if parent.show3D && !currentStyle.isRaster {
                 let vector = (style.source(withIdentifier: "openmaptiles") as? MLNVectorTileSource)
                     ?? (style.source(withIdentifier: "versatiles-shortbread") as? MLNVectorTileSource)
-                    ?? (style.source(withIdentifier: "maptiler_planet") as? MLNVectorTileSource)
                 let isShortbread = style.source(withIdentifier: "versatiles-shortbread") != nil
                 if style.layer(withIdentifier: layerID) == nil, let vector {
                     let layer = MLNFillExtrusionStyleLayer(identifier: layerID, source: vector)
@@ -904,12 +830,11 @@ struct MapBridge: UIViewRepresentable {
                 }
                 if let map, !was3DOn {
                     was3DOn = true
-                    // Engage the 3D view once per enable — and only when
-                    // the user is already looking at a city, never yank
-                    // the camera away from a world/regional view.
-                    if map.zoomLevel >= 13.5 {
-                        if map.zoomLevel < 16 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
-                        let targetPitch: CGFloat = parent.styleKind == .cinematic ? 56 : 50
+                    // At city zoom, bring the map into the 3D view. Keep a
+                    // regional/world view untouched until the user zooms in.
+                    if map.zoomLevel >= 13.0 {
+                        if map.zoomLevel < 15.5 { map.setCenter(map.centerCoordinate, zoomLevel: 16, animated: true) }
+                        let targetPitch: CGFloat = parent.styleKind == .cinematic ? 58 : 50
                         if map.camera.pitch < targetPitch { var cam = map.camera; cam.pitch = targetPitch; map.setCamera(cam, animated: true) }
                     }
                 }

@@ -67,6 +67,11 @@ final class VoiceGuide: ObservableObject {
             if d < 25 {
                 arrived = true
                 currentInstruction = "وصلت إلى وجهتك"
+                Task { @MainActor in
+                    InAppNoticeCenter.shared.show(title: "وصلت إلى وجهتك".loc,
+                                                  symbol: "flag.checkered",
+                                                  tone: .success)
+                }
                 speak("وصلت إلى وجهتك. مبروك!")
                 vibrate(pattern: [0, 400, 120, 400])
                 return
