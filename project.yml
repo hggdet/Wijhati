@@ -24,6 +24,8 @@ targets:
       properties:
         CFBundleDisplayName: وجهتي
         CFBundleName: Wijhati
+        CFBundleShortVersionString: "1.63.0"
+        CFBundleVersion: "65"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -64,6 +66,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: وجهتي سريع
+        CFBundleShortVersionString: "1.63.0"
+        CFBundleVersion: "65"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
