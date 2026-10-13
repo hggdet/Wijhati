@@ -79,11 +79,12 @@ struct ContentView: View {
     @State private var styleKind: MapStyleKind = .pastel
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
+    @State private var mapRebuildGeneration = 0
+    @State private var mapRecoveryStyle: MapStyleKind?
 
     @State private var showSaved = false
     @State private var showSettings = false
     @AppStorage("wijhati.show3D") private var show3D = true
-    @AppStorage("wijhati.health.log") private var healthLog = "" 
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
     @State private var showDirections = false
@@ -133,6 +134,9 @@ struct ContentView: View {
     }
     private var locationAuthorized: Bool {
         locationService.authorization == .authorizedWhenInUse || locationService.authorization == .authorizedAlways
+    }
+    private var foregroundLocationActive: Bool {
+        scenePhase == .active && !showSettings
     }
 
     /// Dark (from the device or the in-app appearance) means a night map —
@@ -192,7 +196,7 @@ struct ContentView: View {
                 altRouteCoords: altCoords,
                 tripCoords: [],
                 routeRevision: routeLayerRevision,
-                styleKind: styleKind,
+                styleKind: mapRecoveryStyle ?? styleKind,
                 show3D: show3D,
                 followUser: followUser,
                 isAppActive: scenePhase == .active,
@@ -202,8 +206,13 @@ struct ContentView: View {
                 northReset: 0,
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
-                onMapTap: { closeMapSearch() }
+                onMapTap: { closeMapSearch() },
+                onRecoveryExhausted: { recoveredStyle in
+                    mapRecoveryStyle = recoveredStyle
+                    mapRebuildGeneration += 1
+                }
             )
+            .id(mapRebuildGeneration)
             .ignoresSafeArea()
 
             if showSearch {
@@ -257,7 +266,7 @@ struct ContentView: View {
     private var lifecycleContent: some View {
         mapComposition
         .onAppear {
-            locationService.setAppActive(scenePhase == .active)
+            locationService.setAppActive(foregroundLocationActive)
             locationService.requestCurrentLocation()
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
@@ -305,13 +314,16 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            locationService.setAppActive(phase == .active)
+            locationService.setAppActive(phase == .active && !showSettings)
             if phase == .active && (pendingCenterOnUser || pendingInitialLocationCenter) {
                 locationService.requestCurrentLocation()
                 if locationAuthorized {
                     scheduleLocationWaitTimeout(forStartup: pendingInitialLocationCenter && !pendingCenterOnUser)
                 }
             }
+        }
+        .onChange(of: showSettings) { _, presented in
+            locationService.setAppActive(scenePhase == .active && !presented)
         }
         .onChange(of: voice.active) { _, active in
             locationService.setNavigationActive(active)
@@ -339,6 +351,7 @@ struct ContentView: View {
         .onChange(of: appearance) { _, _ in syncStyleToScheme() }
         .onChange(of: deviceScheme) { _, _ in syncStyleToScheme() }
         .onChange(of: styleKind) { _, newKind in
+            mapRecoveryStyle = nil
             // A manual style pick always wins over the automatic night sync.
             if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
             if newKind == .maptiler, MapStyleKind.maptilerKey.isEmpty {
@@ -483,7 +496,6 @@ struct ContentView: View {
                         .font(.system(size: 15, weight: .medium))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(adaptiveSecondaryInk)
-                        .symbolEffect(.pulse, value: showWeatherDetail)
                     Text(localWeather.map { displayTemp($0.temperature) } ?? "—")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(adaptiveInk)
@@ -592,7 +604,6 @@ struct ContentView: View {
             .font(.system(size: 20, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(tint)
-            .contentTransition(.symbolEffect(.replace))
             .frame(width: verticalSizeClass == .compact ? 52 : 58,
                    height: verticalSizeClass == .compact ? 52 : 58)
             .glassCircle()
@@ -604,8 +615,9 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("الطقس عند موقعك".loc).font(.caption.weight(.bold))
                 Text("\(displayTemp(w.temperature)) • \(w.label)").font(.subheadline.weight(.medium))
-                Text("🌅 شروق \(w.sunrise) • 🌇 غروب \(w.sunset)").font(.caption2).foregroundStyle(adaptiveSecondaryInk)
-                Text("\("الوحدة من الإعدادات".loc) ⚙️: \(tempUnit == "f" ? "فهرنهايت".loc : "سيليزية".loc)")
+                Text("\("الشروق".loc): \(w.sunrise) • \("الغروب".loc): \(w.sunset)")
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                Text("\("الوحدة من الإعدادات".loc): \(tempUnit == "f" ? "فهرنهايت".loc : "سيليزية".loc)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
             }
             .padding(12)
@@ -1528,20 +1540,14 @@ struct ContentView: View {
                 Toggle("الطبقة الرسمية".loc, isOn: $officialEnabled)
             }
             Section("شفافية الواجهة".loc) {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("شفافية الواجهة".loc)
-                        Spacer()
-                        Text("\(Int(glassLevel * 100))٪")
-                            .font(.caption).foregroundStyle(adaptiveSecondaryInk)
-                    }
-                    HStack(spacing: 8) {
-                        Text("مصمت".loc).font(.caption2.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
-                        Slider(value: $glassLevel, in: 0...1)
-                        Text("زجاجي".loc).font(.caption2.weight(.bold)).foregroundStyle(adaptiveSecondaryInk)
-                    }
-                }
-                .padding(.vertical, 4)
+                DeferredSettingsSliderRow(
+                    title: "شفافية الواجهة".loc,
+                    value: $glassLevel,
+                    range: 0...1,
+                    lowerLabel: "مصمت".loc,
+                    upperLabel: "زجاجي".loc,
+                    formattedValue: { "\(Int($0 * 100))٪" }
+                )
             }
             Section("خرائط MapTiler الاختيارية".loc) {
                 SecureField("مفتاح MapTiler".loc, text: $maptilerKey)
@@ -1635,14 +1641,14 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.63").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.63.1").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(adaptiveSecondaryInk) }
-                HStack { Text("حالة الخريطة".loc); Spacer(); Text(healthLog.isEmpty ? "—" : healthLog).font(.caption2).foregroundStyle(adaptiveSecondaryInk).multilineTextAlignment(.trailing) }
+                MapHealthStatusRow()
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(adaptiveSecondaryInk) }
             }
             Section {
@@ -1887,18 +1893,13 @@ struct ContentView: View {
                     .disabled(!notifMaster)
             }
             Section("صوت المرشد".loc) {
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("صوت المرشد".loc)
-                        Spacer()
-                        Text("\(Int(voiceVolume * 100))٪")
-                            .font(.caption).foregroundStyle(adaptiveSecondaryInk)
-                    }
-                    Slider(value: $voiceVolume, in: 0...1) { editing in
-                        if !editing { voice.announce("صوت المرشد") }
-                    }
-                }
-                .padding(.vertical, 4)
+                DeferredSettingsSliderRow(
+                    title: "صوت المرشد".loc,
+                    value: $voiceVolume,
+                    range: 0...1,
+                    formattedValue: { "\(Int($0 * 100))٪" },
+                    onCommit: { voice.announce("صوت المرشد".loc) }
+                )
             }
             Section {
                 NavigationLink {

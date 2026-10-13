@@ -346,6 +346,7 @@ struct MapBridge: UIViewRepresentable {
     var onSelectPin: (Place) -> Void
     var onLongPress: (CLLocationCoordinate2D) -> Void
     var onMapTap: () -> Void
+    var onRecoveryExhausted: (MapStyleKind) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -591,7 +592,7 @@ struct MapBridge: UIViewRepresentable {
                 self.reloadStyleAfterResume(map, generation: generation)
             }
             resumeFallback = fallback
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: fallback)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: fallback)
         }
 
         private func reloadStyleAfterResume(_ map: MLNMapView, generation: Int) {
@@ -599,44 +600,41 @@ struct MapBridge: UIViewRepresentable {
             cancelResumeFallback()
             MapHealth.log("رجوع للواجهة: إعادة تحميل النمط بعد تعذر استعادة الإطار")
             let camera = map.camera
+            let restoreStyle = usingFallbackStyle ? MapStyleKind.standard : requestedStyle
+            currentStyle = restoreStyle
+            styleReady = false
+            lastLayerSignature = ""
             map.setNeedsLayout()
             map.layoutIfNeeded()
-            map.delegate = nil
-            map.styleURL = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak map] in
-                guard let self, self.lifecycleGeneration == generation else { return }
-                guard UIApplication.shared.applicationState == .active else {
-                    self.resumeScheduled = false
-                    self.didEnterBackground = true
-                    return
-                }
-                guard let map else {
-                    self.resumeScheduled = false
-                    return
-                }
-                self.didEnterBackground = false
+            map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
+            map.setCamera(camera, animated: false)
+            map.setNeedsLayout()
+            map.setNeedsDisplay()
+            armWatchdog(stage: 0)
+
+            // If style reload still yields no frame, recreate the representable.
+            // Keep the current screen until that last-resort recovery is needed.
+            let rebuild = DispatchWorkItem { [weak self] in
+                guard let self, self.lifecycleGeneration == generation,
+                      self.resumeScheduled, self.didEnterBackground,
+                      UIApplication.shared.applicationState == .active else { return }
+                self.resumeFallback = nil
+                MapHealth.log("رجوع للواجهة: إعادة إنشاء الخريطة بعد فشل الرسم")
                 self.resumeScheduled = false
-                self.styleReady = false
-                self.lastLayerSignature = ""
-                let restoreStyle = self.usingFallbackStyle ? MapStyleKind.standard : self.requestedStyle
-                self.currentStyle = restoreStyle
-                map.delegate = self
-                map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
-                map.setCamera(camera, animated: false)
-                map.setNeedsLayout()
-                map.setNeedsDisplay()
-                self.armWatchdog(stage: 0)
+                self.parent.onRecoveryExhausted(self.usingFallbackStyle ? .standard : self.currentStyle)
             }
+            resumeFallback = rebuild
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: rebuild)
         }
 
         func mapView(_ mapView: MLNMapView, didFinishRenderingFrame fullyRendered: Bool) {
-            guard fullyRendered, resumeScheduled, didEnterBackground,
+            guard resumeScheduled, didEnterBackground,
                   styleReady, mapView.style != nil,
                   UIApplication.shared.applicationState == .active else { return }
             cancelResumeFallback()
             resumeScheduled = false
             didEnterBackground = false
-            MapHealth.log("رجوع للواجهة: الخريطة استأنفت إطارًا كاملًا")
+            MapHealth.log("رجوع للواجهة: الخريطة رسمت إطارًا")
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -712,12 +710,9 @@ struct MapBridge: UIViewRepresentable {
                 UIColor.white.setStroke()
                 circle.lineWidth = 2.5
                 circle.stroke()
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 15)
-                ]
-                let text = "🏛" as NSString
-                let ts = text.size(withAttributes: attrs)
-                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
+                let center = UIBezierPath(ovalIn: CGRect(x: 14, y: 14, width: 6, height: 6))
+                UIColor.white.setFill()
+                center.fill()
             }
         }
 
@@ -731,13 +726,9 @@ struct MapBridge: UIViewRepresentable {
                 UIColor.white.setStroke()
                 circle.lineWidth = 2.5
                 circle.stroke()
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 16, weight: .bold),
-                    .foregroundColor: UIColor.white
-                ]
-                let text = "★" as NSString
-                let ts = text.size(withAttributes: attrs)
-                text.draw(at: CGPoint(x: (size.width - ts.width) / 2, y: (size.height - ts.height) / 2), withAttributes: attrs)
+                let center = UIBezierPath(ovalIn: CGRect(x: 14, y: 14, width: 6, height: 6))
+                UIColor.white.setFill()
+                center.fill()
             }
         }
 
