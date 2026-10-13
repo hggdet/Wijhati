@@ -37,7 +37,6 @@ struct ContentView: View {
     @State private var homePlace: Place?
     @State private var workPlace: Place?
     @State private var publishPlace: Place?
-    @StateObject private var offlineManager = OfflineManager()
 
     @AppStorage("wijhati.tempUnit") private var tempUnit = "c"
     @AppStorage("wijhati.appearance") private var appearance = "auto"
@@ -91,10 +90,6 @@ struct ContentView: View {
     @State private var showDirections = false
     @State private var directionsText = ""
     @State private var searchPins: [Place] = []
-    @State private var cityQuery = ""
-    @State private var cityResults: [GeoService.CityResult] = []
-    @State private var citySearching = false
-    @State private var citySearchGeneration = 0
     @State private var speedLimitKmh: Int?
     @State private var lastLimitLoc: CLLocation?
     @State private var lastOverspeedAt = Date.distantPast
@@ -172,14 +167,14 @@ struct ContentView: View {
 
     private func syncStyleToScheme(initial: Bool = false) {
         if effectiveDark {
-            if !initial && !autoDark && styleKind != .dark && styleKind != .ofmDark && styleKind != .cinematic {
+            if !initial && !autoDark && styleKind != .dark {
                 lastLightStyle = styleKind.rawValue
             }
-            styleKind = .cinematic
+            styleKind = .dark
             autoDark = true
         } else if initial || autoDark {
             let savedStyle = MapStyleKind(rawValue: lastLightStyle) ?? .standard
-            styleKind = savedStyle == .cinematic ? .standard : savedStyle
+            styleKind = savedStyle == .dark ? .standard : savedStyle
             autoDark = false
         }
     }
@@ -385,7 +380,7 @@ struct ContentView: View {
         .onChange(of: styleKind) { _, newKind in
             mapRecoveryStyle = nil
             // A manual style pick always wins over the automatic night sync.
-            if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
+            if effectiveDark, newKind != .dark { autoDark = false }
             if !effectiveDark { lastLightStyle = newKind.rawValue }
         }
     }
@@ -482,22 +477,6 @@ struct ContentView: View {
             lastOverspeedAt = Date()
             voice.announce("انتبه، تجاوزت حد السرعة".loc)
         }
-    }
-
-    private func searchCities() async {
-        let text = cityQuery.trimmingCharacters(in: .whitespaces)
-        citySearchGeneration += 1
-        let generation = citySearchGeneration
-        guard !text.isEmpty else {
-            cityResults = []
-            citySearching = false
-            return
-        }
-        citySearching = true
-        let results = await GeoService.citySearch(text)
-        guard generation == citySearchGeneration else { return }
-        citySearching = false
-        cityResults = results
     }
 
     // (intro moved to IntroView below)
@@ -1565,7 +1544,7 @@ struct ContentView: View {
         Form {
             Section("طبقات".loc) {
                 Picker("النمط".loc, selection: $styleKind) {
-                    ForEach(MapStyleKind.allCases.filter { $0 != .cartoon }, id: \.self) { kind in
+                    ForEach(MapStyleKind.allCases, id: \.self) { kind in
                         Text(kind.label).tag(kind)
                     }
                 }
@@ -1597,19 +1576,19 @@ struct ContentView: View {
                 Label("من الإعدادات ← «الخريطة» اختَر شفافية الواجهة: مصمت، متوازن، أو زجاجي".loc, systemImage: "slider.horizontal.3")
                 Label("بعد رسم المسار اضغط «جيب» للملاحة الصوتية وهاتفك بجيبك، وبالمشي جرّب «ملاحة بالكاميرا»".loc, systemImage: "waveform")
                 Label("ثبّت بيتك وشغلك من «أماكني المحفوظة» وضيف ودجت وجهتي لشاشتك حتى توصل بضغطة".loc, systemImage: "house.fill")
-                Label("نزّل خرائط منطقتك من «خرائط بدون إنترنت» حتى تتصفح بدون إنترنت".loc, systemImage: "arrow.down.circle")
+                Label("تُدار خرائط Apple دون اتصال من تطبيق خرائط Apple؛ افتح صفحة «خرائط بدون إنترنت» للمزيد".loc, systemImage: "arrow.down.circle")
             }
             Section("أسئلة شائعة".loc) {
                 DisclosureGroup("ليش بعض أسماء الأماكن خطأ أو ناقصة؟".loc) {
-                    Text("بيانات الخريطة من OpenStreetMap ويحرّرها متطوعون حول العالم. وجهتي يعرض الاسم العربي متى ما توفّر، وبعض الأخطاء من المصدر نفسه وتتصلح بتحديثات البيانات.".loc)
+                    Text("تعرض خريطة Apple بيانات Apple؛ أما البحث وبعض بيانات الأماكن والمسارات في وجهتي فتأتي من مزودين خارجيين وقد تختلف الأسماء والتغطية.".loc)
                         .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أبدّل نمط الخريطة؟".loc) {
-                    Text("من الإعدادات ← «الخريطة» تگدر تغيّر نمط الخريطة؛ السينمائي هو الافتراضي ويظهر المباني 3D عند مستوى المدينة.".loc)
+                    Text("من الإعدادات ← «الخريطة» اختَر الخريطة القياسية أو الهادئة أو القمر الصناعي أو الهجينة؛ ويمكن تفعيل عرض التضاريس ثلاثي الأبعاد الواقعي.".loc)
                         .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("هل يشتغل التطبيق بدون إنترنت؟".loc) {
-                    Text("بعد تنزيل منطقة من «خرائط بدون إنترنت» تقدر تتصفح خريطتها بدون نت. البحث وحساب المسارات والطقس يحتاجون اتصالاً.".loc)
+                    Text("إدارة خرائط Apple دون اتصال تتم في تطبيق خرائط Apple والنظام؛ لا يتيح MapKit تنزيل أو إدارة مناطق خرائط من داخل وجهتي. البحث وحساب المسارات والطقس تحتاج اتصالاً.".loc)
                         .font(.callout).foregroundStyle(adaptiveSecondaryInk)
                 }
                 DisclosureGroup("شلون أضيف مكاناً مو موجود بالخريطة؟".loc) {
@@ -1666,13 +1645,13 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.2").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.65.0").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
-                Text("بيانات الخريطة © مساهمو OpenStreetMap • إسناد مزودي البلاطات حسب النمط")
+                Text("خرائط Apple • يظهر إسناد Apple الأصلي على الخريطة".loc)
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
-                HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("المحرك".loc); Spacer(); Text("MapKit").foregroundStyle(adaptiveSecondaryInk) }
                 MapHealthStatusRow()
                 HStack { Text("مؤثرات بصرية".loc); Spacer(); Text("مستوحاة من مشاريع rit3zh (MIT)".loc).font(.caption2).foregroundStyle(adaptiveSecondaryInk) }
             }
@@ -1686,12 +1665,7 @@ struct ContentView: View {
     }
 
     private var mapAttributionText: String {
-        switch mapRecoveryStyle ?? styleKind {
-        case .satellite: return "Imagery © Esri"
-        case .cartoon: return "© OpenStreetMap contributors · CyclOSM"
-        case .dark: return "© OpenStreetMap contributors · Versatiles"
-        default: return "© OpenStreetMap contributors · OpenFreeMap"
-        }
+        "خرائط Apple © Apple".loc
     }
 
     private var mapAttributionSheet: some View {
@@ -1699,11 +1673,8 @@ struct ContentView: View {
             List {
                 Section("بيانات الخريطة".loc) {
                     Text(mapAttributionText)
-                    Link((mapRecoveryStyle ?? styleKind) == .satellite ? "Esri Terms" : "حقوق OpenStreetMap".loc,
-                         destination: (mapRecoveryStyle ?? styleKind) == .satellite
-                            ? URL(string: "https://www.esri.com/en-us/legal/terms/full-master-agreement")!
-                            : URL(string: "https://www.openstreetmap.org/copyright")!)
-                    Text("MapLibre")
+                    Text("يظهر إسناد Apple المعتمد مباشرةً على الخريطة.".loc)
+                    Text("MapKit")
                         .font(.caption)
                         .foregroundStyle(adaptiveSecondaryInk)
                 }
@@ -1724,71 +1695,15 @@ struct ContentView: View {
     private var offlinePage: some View {
         List {
             Section {
-                Button {
-                    if let loc = locationService.location, let url = styleKind.url {
-                        offlineManager.download(styleURL: url,
-                                                center: loc.coordinate, name: "منطقتي — \(styleKind.label)")
-                    }
-                } label: {
-                    Label("تنزيل المنطقة حول موقعي".loc, systemImage: "arrow.down.circle.fill")
-                }
-                .disabled(locationService.location == nil || offlineManager.downloading)
-                if offlineManager.downloading {
-                    ProgressView(value: offlineManager.fraction) {
-                        Text("\("جارٍ التنزيل…".loc) \(Int(offlineManager.fraction * 100))\(L10n.lang == "en" ? "%" : "٪")")
-                    }
-                }
-                if let error = offlineManager.lastError {
-                    Text(error).font(.caption2).foregroundStyle(.red)
-                }
-            }
-            Section("تنزيل مدينة".loc) {
-                Text("لمنع تنزيلات ضخمة، تظهر النتائج ذات حدود محلية فقط.".loc)
-                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
-                HStack {
-                    TextField("اسم المدينة".loc, text: $cityQuery)
-                        .onSubmit { Task { await searchCities() } }
-                        .onChange(of: cityQuery) { _, _ in
-                            citySearchGeneration += 1
-                            citySearching = false
-                            cityResults = []
-                        }
-                    if citySearching { ProgressView() }
-                    Button("بحث".loc) { Task { await searchCities() } }
-                        .disabled(cityQuery.trimmingCharacters(in: .whitespaces).isEmpty || citySearching)
-                }
-                ForEach(cityResults) { city in
-                    Button {
-                        if let url = styleKind.url {
-                            offlineManager.downloadRegion(styleURL: url, sw: city.sw, ne: city.ne, name: city.name)
-                        }
-                    } label: {
-                        HStack {
-                            Text(city.name).lineLimit(1)
-                            Spacer()
-                            Image(systemName: "arrow.down.circle")
-                        }
-                    }
-                    .disabled(offlineManager.downloading || styleKind.url == nil)
+                Text("إدارة خرائط Apple دون اتصال تتم في تطبيق خرائط Apple والنظام؛ لا يتيح MapKit تنزيل أو إدارة مناطق خرائط من داخل وجهتي.".loc)
+                    .font(.callout).foregroundStyle(adaptiveSecondaryInk)
+                Link(destination: URL(string: "https://maps.apple.com/")!) {
+                    Label("فتح في خرائط آبل".loc, systemImage: "map.fill")
                 }
             }
             Section {
-                if offlineManager.infos.isEmpty {
-                    Text("لا توجد مناطق محمّلة بعد".loc).foregroundStyle(adaptiveSecondaryInk)
-                }
-                ForEach(offlineManager.infos) { info in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(info.name).font(.subheadline.weight(.medium))
-                            Text("\(info.stateText) • \(info.sizeText)")
-                                .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
-                        }
-                        Spacer()
-                        Button(role: .destructive) { offlineManager.delete(info) } label: {
-                            Image(systemName: "trash")
-                        }
-                    }
-                }
+                Text("البحث وحساب المسارات والطقس في وجهتي تحتاج اتصالاً بالإنترنت.".loc)
+                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
             }
         }
         .navigationTitle("خرائط بدون إنترنت".loc)
