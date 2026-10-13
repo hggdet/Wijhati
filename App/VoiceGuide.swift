@@ -13,17 +13,23 @@ final class VoiceGuide: ObservableObject {
 
     private let synth = AVSpeechSynthesizer()
     private var steps: [StepData] = []
+    private var routeCoordinates: [CLLocationCoordinate2D] = []
     private var destination: CLLocationCoordinate2D?
     private var nextIndex = 0
     private var announcedApproach = false
     private var offRouteCount = 0
+    private var speechGeneration = UUID()
 
-    func start(steps: [StepData], destination: CLLocationCoordinate2D) {
+    func start(steps: [StepData], destination: CLLocationCoordinate2D,
+               routeCoordinates: [CLLocationCoordinate2D] = []) {
+        stop()
         let filtered = steps.filter { $0.distance > 0 }
         self.steps = filtered.isEmpty ? steps : filtered
+        self.routeCoordinates = routeCoordinates
         self.destination = destination
         nextIndex = 0
         announcedApproach = false
+        offRouteCount = 0
         arrived = false
         active = true
         speak("بدأت الملاحة بالجيب. حطّ الهاتف بجيبك واسمع الإرشادات.")
@@ -48,8 +54,10 @@ final class VoiceGuide: ObservableObject {
 
     func stop() {
         active = false
+        speechGeneration = UUID()
         synth.stopSpeaking(at: .immediate)
         CloudVoice.shared.stop()
+        offRouteCount = 0
     }
 
     func update(userLocation: CLLocation) {
@@ -86,7 +94,7 @@ final class VoiceGuide: ObservableObject {
                 CloudVoice.shared.prefetch(steps[nextIndex].instruction)
             }
         }
-        if dist > 400 {
+        if let distanceFromRoute = distanceToRoute(userLocation.coordinate), distanceFromRoute > 80 {
             offRouteCount += 1
             if offRouteCount == 6 {
                 speak("يبدو أنك بعيد عن المسار. ارجع للمسار بالخريطة.")
@@ -166,12 +174,40 @@ final class VoiceGuide: ObservableObject {
             ?? AVSpeechSynthesisVoice(language: "ar-SA")
     }()
 
+    private func distanceToRoute(_ point: CLLocationCoordinate2D) -> CLLocationDistance? {
+        guard routeCoordinates.count >= 2 else { return nil }
+        let scaleY = 111_320.0
+        let scaleX = scaleY * cos(point.latitude * .pi / 180)
+        var nearest = Double.infinity
+        for index in 1..<routeCoordinates.count {
+            let a = routeCoordinates[index - 1]
+            let b = routeCoordinates[index]
+            let ax = (a.longitude - point.longitude) * scaleX
+            let ay = (a.latitude - point.latitude) * scaleY
+            let bx = (b.longitude - point.longitude) * scaleX
+            let by = (b.latitude - point.latitude) * scaleY
+            let dx = bx - ax
+            let dy = by - ay
+            let lengthSquared = dx * dx + dy * dy
+            let fraction = lengthSquared > 0
+                ? min(1, max(0, -(ax * dx + ay * dy) / lengthSquared))
+                : 0
+            nearest = min(nearest, hypot(ax + fraction * dx, ay + fraction * dy))
+        }
+        return nearest.isFinite ? nearest : nil
+    }
+
     private func speak(_ text: String) {
+        let generation = speechGeneration
         // Real neural voices when the user's Azure key is configured;
         // the device voice remains the automatic fallback.
         if CloudVoice.configured {
             CloudVoice.shared.speak(text) { [weak self] ok in
-                if !ok { DispatchQueue.main.async { self?.speakDevice(text) } }
+                guard let self, self.speechGeneration == generation else { return }
+                if !ok { DispatchQueue.main.async {
+                    guard self.speechGeneration == generation else { return }
+                    self.speakDevice(text)
+                } }
             }
         } else {
             speakDevice(text)

@@ -13,17 +13,38 @@ enum GeoService {
     private static let resultCacheLock = NSLock()
     private static let resultCacheTTL: TimeInterval = 300
 
+    private static var preferredAcceptLanguage: String {
+        switch UserDefaults.standard.string(forKey: "wijhati.language") ?? "ar" {
+        case "en": return "en,ar"
+        case "ku": return "ckb,ar,en"
+        default: return "ar,en"
+        }
+    }
+
+    private static var photonLanguage: String {
+        (UserDefaults.standard.string(forKey: "wijhati.language") ?? "ar") == "en" ? "en" : "default"
+    }
+
+    private static func searchIdentity(_ place: Place) -> String {
+        normalizeArabic(place.name) + "|\(Int((place.latitude * 2000).rounded()))|\(Int((place.longitude * 2000).rounded()))"
+    }
+
     static func search(_ query: String, near: CLLocationCoordinate2D?, limit: Int = 8,
                        includeFallback: Bool = true, timeout: TimeInterval = 20) async -> [Place] {
         let safeLimit = max(1, limit)
-        let cacheKey = normalizeArabic(query) + "|" + (near.map { "\(Int($0.latitude * 50)),\(Int($0.longitude * 50))" } ?? "-")
+        let cacheKey = normalizeArabic(query) + "|\(preferredAcceptLanguage)|"
+            + (near.map { "\(Int(($0.latitude * 500).rounded())),\(Int(($0.longitude * 500).rounded()))" } ?? "-")
             + "|\(safeLimit)|fallback:\(includeFallback)"
         resultCacheLock.lock()
         let now = Date()
         resultCache = resultCache.filter { now.timeIntervalSince($0.value.storedAt) < resultCacheTTL }
         let hit = resultCache[cacheKey]
         resultCacheLock.unlock()
-        if let hit { return hit.places }
+        if let hit {
+            return hit.places.sorted {
+                relevance($0, query: query, near: near) > relevance($1, query: query, near: near)
+            }
+        }
 
         // Pool every dialect variant IN PARALLEL instead of returning
         // the first non-empty one — a weak early match used to hide
@@ -40,18 +61,20 @@ enum GeoService {
             for await part in group { pool += part }
         }
         guard !Task.isCancelled else { return [] }
-        // Second engine: Nominatim's structured index covers Iraqi
-        // places Photon misses, and its results carry full addresses.
-        if includeFallback, pool.count < 5, !Task.isCancelled {
-            pool += await nominatimSearch(query, limit: safeLimit)
-        }
-        guard !Task.isCancelled else { return [] }
         var seen = Set<String>()
         var unique: [Place] = []
         for p in pool {
-            let k = normalizeArabic(p.name) + "|\(Int((p.latitude * 2000).rounded()))|\(Int((p.longitude * 2000).rounded()))"
-            if seen.insert(k).inserted { unique.append(p) }
+            if seen.insert(searchIdentity(p)).inserted { unique.append(p) }
         }
+        // Make the fallback decision after de-duplication: dialect variants
+        // can return the same POIs and otherwise hide weak coverage.
+        if includeFallback, unique.count < 5, !Task.isCancelled {
+            let fallback = await nominatimSearch(query, limit: safeLimit)
+            for place in fallback where seen.insert(searchIdentity(place)).inserted {
+                unique.append(place)
+            }
+        }
+        guard !Task.isCancelled else { return [] }
         let ranked = unique.sorted { relevance($0, query: query, near: near) > relevance($1, query: query, near: near) }
         let out = Array(ranked.prefix(safeLimit))
         if !out.isEmpty {
@@ -70,7 +93,10 @@ enum GeoService {
 
     static func normalizeArabic(_ text: String) -> String {
         var t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        for (a, b) in [("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ة", "ه"), ("ى", "ي"), ("ؤ", "و"), ("ئ", "ي")] {
+        for mark in ["\u{0640}", "\u{064B}", "\u{064C}", "\u{064D}", "\u{064E}", "\u{064F}", "\u{0650}", "\u{0651}", "\u{0652}", "\u{0653}", "\u{0654}", "\u{0655}", "\u{0670}"] {
+            t = t.replacingOccurrences(of: mark, with: "")
+        }
+        for (a, b) in [("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ة", "ه"), ("ى", "ي"), ("ؤ", "و"), ("ئ", "ي"), ("ک", "ك"), ("ی", "ي")] {
             t = t.replacingOccurrences(of: a, with: b)
         }
         return t
@@ -141,7 +167,7 @@ enum GeoService {
         var comps = URLComponents(string: "https://photon.komoot.io/api/")!
         var items = [URLQueryItem(name: "q", value: query),
                      URLQueryItem(name: "limit", value: "\(limit)"),
-                     URLQueryItem(name: "lang", value: "default")]
+                     URLQueryItem(name: "lang", value: photonLanguage)]
         if let near {
             items.append(URLQueryItem(name: "lat", value: "\(near.latitude)"))
             items.append(URLQueryItem(name: "lon", value: "\(near.longitude)"))
@@ -179,7 +205,7 @@ enum GeoService {
                             URLQueryItem(name: "q", value: query),
                             URLQueryItem(name: "limit", value: "\(limit)"),
                             URLQueryItem(name: "addressdetails", value: "1"),
-                            URLQueryItem(name: "accept-language", value: "ar")]
+                            URLQueryItem(name: "accept-language", value: preferredAcceptLanguage)]
         guard let url = comps.url, let rows = await getJSON(url) as? [[String: Any]] else { return [] }
         return rows.compactMap { row in
             guard let latS = row["lat"] as? String, let lonS = row["lon"] as? String,
@@ -198,7 +224,7 @@ enum GeoService {
         comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
                             URLQueryItem(name: "lat", value: "\(lat)"),
                             URLQueryItem(name: "lon", value: "\(lon)"),
-                            URLQueryItem(name: "accept-language", value: "ar"),
+                            URLQueryItem(name: "accept-language", value: preferredAcceptLanguage),
                             URLQueryItem(name: "zoom", value: "18")]
         guard let url = comps.url, let root = await getJSON(url) as? [String: Any] else { return nil }
         let name = (root["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -214,7 +240,7 @@ enum GeoService {
         comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
                             URLQueryItem(name: "lat", value: "\(lat)"),
                             URLQueryItem(name: "lon", value: "\(lon)"),
-                            URLQueryItem(name: "accept-language", value: "ar"),
+                            URLQueryItem(name: "accept-language", value: preferredAcceptLanguage),
                             URLQueryItem(name: "addressdetails", value: "1"),
                             URLQueryItem(name: "zoom", value: "17")]
         guard let url = comps.url, let root = await getJSON(url) as? [String: Any],
@@ -500,7 +526,7 @@ enum GeoService {
     // MARK: - City search + speed limits
 
     struct CityResult: Identifiable {
-        var id: String { name }
+        var id: String { "\(name)|\(swLat),\(swLon),\(neLat),\(neLon)" }
         var name: String
         var swLat: Double, swLon: Double, neLat: Double, neLon: Double
         var sw: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: swLat, longitude: swLon) }
@@ -513,13 +539,18 @@ enum GeoService {
         comps.queryItems = [URLQueryItem(name: "format", value: "jsonv2"),
                             URLQueryItem(name: "q", value: query),
                             URLQueryItem(name: "limit", value: "6"),
-                            URLQueryItem(name: "accept-language", value: "ar")]
+                            URLQueryItem(name: "accept-language", value: preferredAcceptLanguage)]
         guard let url = comps.url, let rows = await getJSON(url) as? [[String: Any]] else { return [] }
         return rows.compactMap { row in
             guard let display = row["display_name"] as? String,
                   let bb = row["boundingbox"] as? [String], bb.count == 4,
                   let minLat = Double(bb[0]), let maxLat = Double(bb[1]),
-                  let minLon = Double(bb[2]), let maxLon = Double(bb[3]) else { return nil }
+                  let minLon = Double(bb[2]), let maxLon = Double(bb[3]),
+                  minLat.isFinite, maxLat.isFinite, minLon.isFinite, maxLon.isFinite,
+                  (-90.0...90.0).contains(minLat), (-90.0...90.0).contains(maxLat),
+                  (-180.0...180.0).contains(minLon), (-180.0...180.0).contains(maxLon),
+                  minLat < maxLat, minLon < maxLon,
+                  maxLat - minLat <= 0.75, maxLon - minLon <= 0.75 else { return nil }
             let short = display.split(separator: ",").first.map(String.init) ?? display
             return CityResult(name: short, swLat: minLat, swLon: minLon, neLat: maxLat, neLon: maxLon)
         }

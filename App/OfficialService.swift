@@ -9,14 +9,21 @@ import CoreLocation
 /// first fetch so the layer also works offline.
 final class OfficialStore: ObservableObject {
     @Published var places: [Place] = [] {
-        didSet { normalizedIndex = places.map { ($0, GeoService.normalizeArabic($0.name)) } }
+        didSet { rebuildSearchIndex() }
     }
-    private var normalizedIndex: [(place: Place, name: String)] = []
+    private var normalizedIndex: [(place: Place, searchable: String)] = []
+
+    private func rebuildSearchIndex() {
+        normalizedIndex = places.map { place in
+            let searchable = [place.name, place.address, place.kind ?? ""].joined(separator: " ")
+            return (place, GeoService.normalizeArabic(searchable))
+        }
+    }
 
     /// Instant local matches over the whole official dataset (already
     /// in memory, so search works offline too).
     func matches(_ normalizedQuery: String) -> [Place] {
-        normalizedIndex.filter { $0.name.contains(normalizedQuery) }.map { $0.place }
+        normalizedIndex.filter { $0.searchable.contains(normalizedQuery) }.map { $0.place }
     }
 
     private let cacheKey = "wijhati.officialPlaces.v2"
@@ -29,6 +36,7 @@ final class OfficialStore: ObservableObject {
     init() {
         if let text = UserDefaults.standard.string(forKey: cacheKey) {
             places = Self.decode(text)
+            rebuildSearchIndex()
         }
         Task { await refresh() }
     }
@@ -40,7 +48,8 @@ final class OfficialStore: ObservableObject {
             var request = URLRequest(url: url)
             request.timeoutInterval = 20
             request.setValue("Wijhati/1.43 iOS (id9871456@gmail.com)", forHTTPHeaderField: "User-Agent")
-            guard let (data, _) = try? await URLSession.shared.data(for: request),
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200,
                   let text = String(data: data, encoding: .utf8) else { continue }
             rawParts.append(text)
             combined += Self.decode(text)
@@ -51,14 +60,21 @@ final class OfficialStore: ObservableObject {
     }
 
     private static func decode(_ text: String) -> [Place] {
-        text.split(separator: "\n").compactMap { line in
+        var seen = Set<String>()
+        return text.split(separator: "\n").compactMap { line in
             let f = line.split(separator: "|", omittingEmptySubsequences: false)
-            guard f.count == 4, let lat = Double(f[2]), let lon = Double(f[3]) else { return nil }
-            let name = String(f[0])
-            return Place(id: "official-\(lat),\(lon)-\(name)",
+            guard f.count == 4, let lat = Double(f[2]), let lon = Double(f[3]),
+                  lat.isFinite, lon.isFinite,
+                  (-90.0...90.0).contains(lat), (-180.0...180.0).contains(lon) else { return nil }
+            let name = String(f[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let category = String(f[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, IraqBoundary.contains(CLLocationCoordinate2D(latitude: lat, longitude: lon)) else { return nil }
+            let id = "official-\(Int((lat * 100_000).rounded()))-\(Int((lon * 100_000).rounded()))-\(GeoService.normalizeArabic(name))"
+            guard seen.insert(id).inserted else { return nil }
+            return Place(id: id,
                          name: name,
-                         address: "نقطة رسمية — \(f[1])",
-                         latitude: lat, longitude: lon)
+                         address: category.isEmpty ? "نقطة رسمية" : "نقطة رسمية — \(category)",
+                         latitude: lat, longitude: lon, kind: category.isEmpty ? nil : category)
         }
     }
 }

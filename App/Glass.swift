@@ -7,19 +7,28 @@ struct GlassSurfaceModifier<S: InsettableShape>: ViewModifier {
 
     @AppStorage("wijhati.glassLevel") private var glassLevel: Double = 0.53
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var level: Double { min(max(glassLevel, 0), 1) }
     private var dark: Bool { scheme == .dark }
     private var surfaceFill: Color {
-        dark
+        if reduceTransparency { return dark ? Color.black : Color.white }
+        return dark
             ? Color.black.opacity(0.78 - level * 0.25)
             : Color.white.opacity(0.94 - level * 0.34)
     }
 
     private var border: LinearGradient {
-        let colors = dark
-            ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
-            : [Color.white.opacity(0.84), Color.black.opacity(0.07)]
+        let colors: [Color]
+        if reduceTransparency {
+            colors = dark
+                ? [Color.white.opacity(0.48), Color.white.opacity(0.34)]
+                : [Color.black.opacity(0.30), Color.black.opacity(0.20)]
+        } else {
+            colors = dark
+                ? [Color.white.opacity(0.20), Color.white.opacity(0.08)]
+                : [Color.white.opacity(0.84), Color.black.opacity(0.07)]
+        }
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 

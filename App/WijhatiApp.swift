@@ -17,7 +17,6 @@ struct WijhatiApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .id(language)
                 .font(.body)
                 .fontDesign(.rounded)
                 .buttonStyle(AppPressStyle())

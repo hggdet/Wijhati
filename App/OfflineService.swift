@@ -22,6 +22,7 @@ struct OfflinePackInfo: Identifiable {
 final class OfflineManager: ObservableObject {
     @Published var infos: [OfflinePackInfo] = []
     @Published var downloading = false
+    @Published private(set) var addingPack = false
     @Published var fraction: Double = 0
     @Published var lastError: String?
 
@@ -49,13 +50,15 @@ final class OfflineManager: ObservableObject {
         let packs = MLNOfflineStorage.shared.packs ?? []
         packsByID = Dictionary(uniqueKeysWithValues: packs.map { (ObjectIdentifier($0), $0) })
         var anyActive = false
-        var best = 0.0
+        var resourcesCompleted = 0.0
+        var resourcesExpected = 0.0
         infos = packs.map { pack in
             let p = pack.progress
             if pack.state == .active {
                 anyActive = true
                 if p.countOfResourcesExpected > 0 {
-                    best = max(best, Double(p.countOfResourcesCompleted) / Double(p.countOfResourcesExpected))
+                    resourcesCompleted += Double(p.countOfResourcesCompleted)
+                    resourcesExpected += Double(p.countOfResourcesExpected)
                 }
             }
             return OfflinePackInfo(id: ObjectIdentifier(pack),
@@ -63,8 +66,10 @@ final class OfflineManager: ObservableObject {
                                    stateText: Self.stateText(of: pack),
                                    sizeText: Self.sizeText(of: pack))
         }
-        downloading = anyActive
-        fraction = anyActive ? best : 0
+        downloading = anyActive || addingPack
+        fraction = resourcesExpected > 0
+            ? min(1, resourcesCompleted / resourcesExpected)
+            : 0
     }
 
     func download(styleURL: URL, center: CLLocationCoordinate2D, name: String) {
@@ -84,7 +89,10 @@ final class OfflineManager: ObservableObject {
 
     private func addPack(styleURL: URL, bounds: MLNCoordinateBounds,
                          fromZoom: Double, toZoom: Double, name: String) {
-        guard !downloading else { return }
+        guard !downloading, !addingPack else { return }
+        addingPack = true
+        downloading = true
+        fraction = 0
         lastError = nil
         // Use the map's own current style URL, exactly like MapLibre's
         // documented offline example.
@@ -93,18 +101,28 @@ final class OfflineManager: ObservableObject {
         let context = name.data(using: .utf8) ?? Data()
         MLNOfflineStorage.shared.addPack(for: region, withContext: context) { [weak self] pack, error in
             DispatchQueue.main.async {
+                guard let self else { return }
                 if let error {
-                    self?.lastError = error.localizedDescription
+                    self.addingPack = false
+                    self.lastError = error.localizedDescription
+                    self.refreshSnapshot()
                     return
                 }
-                pack?.resume()
-                self?.downloading = true
-                self?.refreshSnapshot()
+                guard let pack else {
+                    self.addingPack = false
+                    self.lastError = "تعذّر إنشاء حزمة الخريطة".loc
+                    self.refreshSnapshot()
+                    return
+                }
+                pack.resume()
+                self.addingPack = false
+                self.refreshSnapshot()
             }
         }
     }
 
     func delete(_ info: OfflinePackInfo) {
+        guard !downloading, !addingPack else { return }
         guard let pack = packsByID[info.id] else { return }
         MLNOfflineStorage.shared.removePack(pack) { [weak self] _ in
             DispatchQueue.main.async { self?.refreshSnapshot() }

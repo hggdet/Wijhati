@@ -49,6 +49,9 @@ struct ContentView: View {
     @AppStorage("wijhati.maptilerKey") private var maptilerKey = ""
     @AppStorage("wijhati.officialLayer") private var officialEnabled = true
     @AppStorage("wijhati.azureVoice") private var azureVoice = "ar-IQ-BasselNeural"
+    @AppStorage("wijhati.azureRegion") private var azureRegion = "eastus"
+    @State private var azureKeyInput = ""
+    @State private var azureKeyStatus = ""
     @AppStorage("wijhati.lastLightStyle") private var lastLightStyle = "standard"
     @AppStorage("wijhati.autoDark") private var autoDark = false
     @Environment(\.colorScheme) private var deviceScheme
@@ -70,9 +73,10 @@ struct ContentView: View {
     @State private var lastRouteAt = Date.distantPast
     @State private var selectedRouteIndex = 0
     @State private var searching = false
+    @State private var searchGeneration = 0
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .mtPastel
+    @State private var styleKind: MapStyleKind = .pastel
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
 
@@ -88,6 +92,7 @@ struct ContentView: View {
     @State private var cityQuery = ""
     @State private var cityResults: [GeoService.CityResult] = []
     @State private var citySearching = false
+    @State private var citySearchGeneration = 0
     @State private var speedLimitKmh: Int?
     @State private var lastLimitLoc: CLLocation?
     @State private var lastOverspeedAt = Date.distantPast
@@ -109,6 +114,7 @@ struct ContentView: View {
     @State private var showIntro = false
     @State private var pendingCenterOnUser = false
     @State private var locationNotice: String?
+    @State private var locationWaitGeneration = 0
     @State private var placeSheetFull = false
     @State private var placeSheetDragY: CGFloat = 0
     @State private var placeSheetVelocity: CGFloat = 0
@@ -125,6 +131,9 @@ struct ContentView: View {
         if appearance == "light" { return .light }
         return nil
     }
+    private var locationAuthorized: Bool {
+        locationService.authorization == .authorizedWhenInUse || locationService.authorization == .authorizedAlways
+    }
 
     /// Dark (from the device or the in-app appearance) means a night map —
     /// automatically. The last light style is remembered and restored.
@@ -134,13 +143,13 @@ struct ContentView: View {
 
     private func syncStyleToScheme() {
         if effectiveDark {
-            if styleKind != .dark && styleKind != .ofmDark {
+            if styleKind != .dark && styleKind != .ofmDark && styleKind != .cinematic {
                 lastLightStyle = styleKind.rawValue
             }
-            styleKind = .ofmDark
+            styleKind = .cinematic
             autoDark = true
         } else if autoDark {
-            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .mtPastel
+            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .pastel
             autoDark = false
         }
     }
@@ -150,6 +159,9 @@ struct ContentView: View {
     }
     private var altCoords: [CLLocationCoordinate2D] {
         routes.enumerated().filter { $0.offset != selectedRouteIndex }.first?.element.coordinates ?? []
+    }
+    private var routeLayerRevision: String {
+        "\(routeGeneration):\(selectedRouteIndex):" + routes.map { $0.id.uuidString }.joined(separator: ":")
     }
 
     private func fmtDist(_ meters: Double) -> String {
@@ -179,6 +191,7 @@ struct ContentView: View {
                 routeCoords: selectedRoute?.coordinates ?? [],
                 altRouteCoords: altCoords,
                 tripCoords: [],
+                routeRevision: routeLayerRevision,
                 styleKind: styleKind,
                 show3D: show3D,
                 followUser: followUser,
@@ -253,6 +266,9 @@ struct ContentView: View {
             if let loc = locationService.location {
                 centerAtStartupIfNeeded(loc, resolvesInitialFix: false)
             }
+            if pendingInitialLocationCenter && locationAuthorized {
+                scheduleLocationWaitTimeout(forStartup: true)
+            }
         }
         .onChange(of: locationService.location) { _, newValue in
             guard let loc = newValue else { return }
@@ -261,6 +277,7 @@ struct ContentView: View {
                     centerMapOnUser(loc)
                     if abs(Date().timeIntervalSince(loc.timestamp)) <= 30 {
                         pendingCenterOnUser = false
+                        cancelLocationWaitTimeout()
                     }
                 }
             } else if pendingInitialLocationCenter {
@@ -284,12 +301,16 @@ struct ContentView: View {
             } else if (pendingCenterOnUser || pendingInitialLocationCenter) &&
                         (status == .authorizedWhenInUse || status == .authorizedAlways) {
                 locationService.requestCurrentLocation()
+                scheduleLocationWaitTimeout(forStartup: pendingInitialLocationCenter && !pendingCenterOnUser)
             }
         }
         .onChange(of: scenePhase) { _, phase in
             locationService.setAppActive(phase == .active)
             if phase == .active && (pendingCenterOnUser || pendingInitialLocationCenter) {
                 locationService.requestCurrentLocation()
+                if locationAuthorized {
+                    scheduleLocationWaitTimeout(forStartup: pendingInitialLocationCenter && !pendingCenterOnUser)
+                }
             }
         }
         .onChange(of: voice.active) { _, active in
@@ -429,10 +450,18 @@ struct ContentView: View {
 
     private func searchCities() async {
         let text = cityQuery.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return }
+        citySearchGeneration += 1
+        let generation = citySearchGeneration
+        guard !text.isEmpty else {
+            cityResults = []
+            citySearching = false
+            return
+        }
         citySearching = true
-        cityResults = await GeoService.citySearch(text)
+        let results = await GeoService.citySearch(text)
+        guard generation == citySearchGeneration else { return }
         citySearching = false
+        cityResults = results
     }
 
     // (intro moved to IntroView below)
@@ -498,6 +527,7 @@ struct ContentView: View {
     }
 
     private func openMapSearch(focus: Bool = true) {
+        invalidateSearchRequests()
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             showSearch = true
         }
@@ -509,11 +539,17 @@ struct ContentView: View {
     }
 
     private func closeMapSearch() {
+        invalidateSearchRequests()
         overlayFocused = false
         voiceSearch.stop()
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             showSearch = false
         }
+    }
+
+    private func invalidateSearchRequests() {
+        searchGeneration += 1
+        searching = false
     }
 
     private var floatingMapTools: some View {
@@ -964,10 +1000,11 @@ struct ContentView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(adaptiveSecondaryInk)
-                        .frame(width: 30, height: 30)
+                        .frame(minWidth: 44, minHeight: 44)
                         .background(Color.white.opacity(0.42), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("مسح المسار".loc)
             }
 
             HStack(spacing: 8) {
@@ -1012,7 +1049,14 @@ struct ContentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(routes.indices, id: \.self) { idx in
-                            Button { selectedRouteIndex = idx } label: {
+                            Button {
+                                selectedRouteIndex = idx
+                                if voice.active, let place = selected {
+                                    let chosen = routes[idx]
+                                    voice.start(steps: chosen.steps, destination: place.coordinate,
+                                                routeCoordinates: chosen.coordinates)
+                                }
+                            } label: {
                                 Text(idx == 0 ? "الأسرع".loc + ": \(formatDuration(routes[idx].duration))" : "بديل".loc + ": \(formatDuration(routes[idx].duration))")
                                     .font(.caption2.weight(.semibold))
                                     .padding(.horizontal, 9).padding(.vertical, 6)
@@ -1027,7 +1071,8 @@ struct ContentView: View {
             Button {
                 if let place = selected {
                     followUser = true
-                    voice.start(steps: route.steps, destination: place.coordinate)
+                    voice.start(steps: route.steps, destination: place.coordinate,
+                                routeCoordinates: route.coordinates)
                 }
             } label: {
                 Label(voice.active ? "الملاحة نشطة".loc : "انطلق الآن".loc,
@@ -1498,6 +1543,13 @@ struct ContentView: View {
                 }
                 .padding(.vertical, 4)
             }
+            Section("خرائط MapTiler الاختيارية".loc) {
+                SecureField("مفتاح MapTiler".loc, text: $maptilerKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Text("أدخل مفتاحك إذا أردت استخدام أنماط MapTiler؛ من دون مفتاح تبقى الأنماط المجانية متاحة.".loc)
+                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
+            }
         }
         .navigationTitle("الخريطة".loc)
         .navigationBarTitleDisplayMode(.inline)
@@ -1583,9 +1635,11 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.62").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.63").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • البلاطات © MapTiler و© OpenFreeMap")
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 HStack { Text("المحرك".loc); Spacer(); Text("MapLibre").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("حالة الخريطة".loc); Spacer(); Text(healthLog.isEmpty ? "—" : healthLog).font(.caption2).foregroundStyle(adaptiveSecondaryInk).multilineTextAlignment(.trailing) }
@@ -1624,9 +1678,16 @@ struct ContentView: View {
                 }
             }
             Section("تنزيل مدينة".loc) {
+                Text("لمنع تنزيلات ضخمة، تظهر النتائج ذات حدود محلية فقط.".loc)
+                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
                 HStack {
                     TextField("اسم المدينة".loc, text: $cityQuery)
                         .onSubmit { Task { await searchCities() } }
+                        .onChange(of: cityQuery) { _, _ in
+                            citySearchGeneration += 1
+                            citySearching = false
+                            cityResults = []
+                        }
                     if citySearching { ProgressView() }
                     Button("بحث".loc) { Task { await searchCities() } }
                         .disabled(cityQuery.trimmingCharacters(in: .whitespaces).isEmpty || citySearching)
@@ -1714,7 +1775,11 @@ struct ContentView: View {
                 ForEach(CloudVoice.voices, id: \.name) { option in
                     Button {
                         azureVoice = option.name
-                        CloudVoice.shared.preview(voiceName: option.name)
+                        if CloudVoice.configured {
+                            CloudVoice.shared.preview(voiceName: option.name)
+                        } else {
+                            voice.announce("أضف مفتاح Azure لتجربة الصوت السحابي".loc)
+                        }
                     } label: {
                         HStack {
                             Text(option.label)
@@ -1729,8 +1794,41 @@ struct ContentView: View {
             } header: {
                 Text("أصوات عراقية حقيقية (سحابية)".loc)
             } footer: {
-                Text("الأصوات السحابية مدمجة بالتطبيق وتعمل مباشرة — اختر صوتاً واسمعه. قسم صوت الجهاز بالأسفل احتياطي يعمل بدون إنترنت.".loc)
+                Text("الأصوات العراقية السحابية اختيارية وتحتاج مفتاحك من Azure؛ من دون مفتاح يعمل صوت الجهاز محلياً. مفتاحك يُحفظ في Keychain على هذا الجهاز.".loc)
                     .font(.caption2)
+            }
+            Section("إعداد الصوت السحابي".loc) {
+                SecureField("مفتاح Azure".loc, text: $azureKeyInput)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .privacySensitive()
+                TextField("المنطقة (Region)".loc, text: $azureRegion)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                HStack {
+                    Button("حفظ".loc) {
+                        let saved = CloudVoice.storeKey(azureKeyInput)
+                        azureKeyInput = ""
+                        azureKeyStatus = saved ? "تم حفظ المفتاح بأمان على هذا الجهاز".loc : "تعذر حفظ المفتاح؛ حاول مرة أخرى".loc
+                    }
+                    .disabled(azureKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if CloudVoice.configured {
+                        Button("حذف".loc, role: .destructive) {
+                            _ = CloudVoice.storeKey("")
+                            azureKeyInput = ""
+                            azureKeyStatus = "تم حذف المفتاح؛ سيعمل صوت الجهاز".loc
+                        }
+                    }
+                }
+                if !azureKeyStatus.isEmpty {
+                    Text(azureKeyStatus).font(.caption).foregroundStyle(adaptiveSecondaryInk)
+                }
+                Text(CloudVoice.configured
+                     ? "المفتاح محفوظ؛ جرّب معاينة الصوت العراقي أعلاه".loc
+                     : (CloudVoice.key.isEmpty
+                        ? "لا يوجد مفتاح محفوظ؛ الملاحة الصوتية تستخدم صوت الجهاز".loc
+                        : "منطقة Azure غير صالحة؛ تحقق من قيمة Region".loc))
+                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
             }
             Section("صوت الجهاز".loc) {
                 ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
@@ -1825,7 +1923,7 @@ struct ContentView: View {
     /// SwiftUI's layoutDirection environment alone did not flip lists on
     /// the user's iOS 27 build, so force it at the UIKit level too (the
     /// collection views under List/Form obey semanticContentAttribute),
-    /// and WijhatiApp rebuilds the whole tree on language change (.id).
+    /// while the map view itself stays mounted to preserve its state.
     private func applySemanticDirection() {
         let attr: UISemanticContentAttribute = language == "en" ? .forceLeftToRight : .forceRightToLeft
         UIView.appearance().semanticContentAttribute = attr
@@ -1867,9 +1965,32 @@ struct ContentView: View {
         }
     }
 
+    private func scheduleLocationWaitTimeout(forStartup: Bool) {
+        locationWaitGeneration += 1
+        let generation = locationWaitGeneration
+        let timeoutSeconds: UInt64 = forStartup ? 20 : 12
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
+            guard locationWaitGeneration == generation else { return }
+            if forStartup {
+                guard pendingInitialLocationCenter else { return }
+                pendingInitialLocationCenter = false
+            } else {
+                guard pendingCenterOnUser else { return }
+                pendingCenterOnUser = false
+            }
+            showLocationNotice("تعذر تحديد موقعك الآن. تحقق من خدمات الموقع وحاول مرة أخرى.".loc)
+        }
+    }
+
+    private func cancelLocationWaitTimeout() {
+        locationWaitGeneration += 1
+    }
+
     private func centerOnMyLocation(requestFreshFix: Bool = false) {
         if showSearch { closeMapSearch() }
         pendingInitialLocationCenter = false
+        cancelLocationWaitTimeout()
         UISelectionFeedbackGenerator().selectionChanged()
         if locationService.authorization == .denied || locationService.authorization == .restricted {
             pendingCenterOnUser = true
@@ -1883,6 +2004,7 @@ struct ContentView: View {
             pendingCenterOnUser = true
             showLocationNotice("جارٍ تحديد موقعك…".loc)
             locationService.requestCurrentLocation()
+            if locationAuthorized { scheduleLocationWaitTimeout(forStartup: false) }
             return
         }
         pendingCenterOnUser = false
@@ -1890,9 +2012,12 @@ struct ContentView: View {
         centerMapOnUser(loc)
         let locationIsStale = abs(Date().timeIntervalSince(loc.timestamp)) > 30
         if requestFreshFix || locationIsStale {
-            pendingCenterOnUser = true
-            if locationIsStale { showLocationNotice("جارٍ تحديث موقعك…".loc) }
             locationService.requestCurrentLocation()
+        }
+        if locationIsStale {
+            pendingCenterOnUser = true
+            showLocationNotice("جارٍ تحديث موقعك…".loc)
+            if locationAuthorized { scheduleLocationWaitTimeout(forStartup: false) }
         }
     }
 
@@ -1910,6 +2035,7 @@ struct ContentView: View {
         let age = Date().timeIntervalSince(loc.timestamp)
         if resolvesInitialFix && age >= -30 && age <= 30 {
             pendingInitialLocationCenter = false
+            cancelLocationWaitTimeout()
         }
     }
 
@@ -1923,7 +2049,8 @@ struct ContentView: View {
         }
     }
 
-    private func select(_ place: Place) {
+    private func select(_ place: Place, preservingSearchRequest: Bool = false) {
+        if !preservingSearchRequest { invalidateSearchRequests() }
         pendingQuickRoute = false
         routeFailed = false
         pendingInitialLocationCenter = false
@@ -1977,32 +2104,53 @@ struct ContentView: View {
     private func runSearch() async {
         let text = query.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        searchGeneration += 1
+        let generation = searchGeneration
         searching = true
         let results = await GeoService.search(text, near: locationService.location?.coordinate)
+        guard generation == searchGeneration else { return }
         searching = false
         pins = results
         searchPins = results
         suggestions = []
-        if let first = results.first { select(first); pins = results }
+        if let first = results.first {
+            select(first, preservingSearchRequest: true)
+            pins = results
+        }
     }
 
-    private func computeRoute() async {
+    private func computeRoute(announceRecalculation: Bool = false) async {
         guard let dest = selected else { return }
-        guard let origin = locationService.location?.coordinate else {
-            routeGeneration += 1
-            loadingRoute = false
+        routeGeneration += 1
+        let gen = routeGeneration
+        let resumeVoiceAfterRecalculation = voice.active
+        voice.stop()
+        routes = []
+        selectedRouteIndex = 0
+        elevations = []
+        offRouteCount = 0
+        routeNotice = nil
+        routeFailed = false
+        loadingRoute = false
+
+        guard let currentLocation = locationService.location else {
             routeFailed = true
             routeNotice = "بانتظار تحديد موقعك. فعّل إذن الموقع ثم أعد المحاولة.".loc
             locationService.request()
             return
         }
-        // Generation guard: if the user switches transport or destination
-        // mid-flight, the stale computation must not overwrite the new one.
-        routeGeneration += 1
-        let gen = routeGeneration
+        let locationAge = Date().timeIntervalSince(currentLocation.timestamp)
+        guard currentLocation.horizontalAccuracy >= 0,
+              currentLocation.horizontalAccuracy <= 100,
+              locationAge >= -5, locationAge <= 45 else {
+            routeFailed = true
+            routeNotice = "موقعك غير دقيق بعد؛ انتظر تثبيت GPS ثم أعد المحاولة.".loc
+            locationService.request()
+            return
+        }
+
+        let origin = currentLocation.coordinate
         lastRouteAt = Date()
-        routeNotice = nil
-        routeFailed = false
         loadingRoute = true
         let result = await GeoService.route(from: origin, waypoints: stops.map { $0.coordinate },
                                             to: dest.coordinate, profile: transport.osrmProfile)
@@ -2011,6 +2159,10 @@ struct ContentView: View {
         if result.isEmpty {
             routeFailed = true
             routeNotice = "\("تعذّر حساب مسار".loc) \(transport.label) \("لهذه الوجهة — جرّب وسيلة أخرى أو وجهة أقرب".loc)"
+            if announceRecalculation && resumeVoiceAfterRecalculation {
+                voice.announce("تعذّر تحديث المسار؛ انتبه للطريق واتبع الخريطة.".loc)
+            }
+            return
         }
         // Show the routes immediately; landmark-enriched copies replace
         // them when the (slower) Overpass pass returns.
@@ -2018,12 +2170,19 @@ struct ContentView: View {
         selectedRouteIndex = 0
         let enriched = await GeoService.enrichRoutes(result)
         guard gen == routeGeneration else { return }
-        routes = enriched
-        elevations = []
+        routes = enriched.isEmpty ? result : enriched
         if let first = result.first {
             let els = await GeoService.elevations(for: first.coordinates)
             guard gen == routeGeneration else { return }
             elevations = els
+        }
+        if resumeVoiceAfterRecalculation, let place = selected, let newRoute = routes.first {
+            voice.start(steps: newRoute.steps, destination: place.coordinate,
+                        routeCoordinates: newRoute.coordinates)
+            followUser = true
+            if announceRecalculation {
+                voice.announce("تم تحديث المسار بعد خروجك عن الطريق.".loc)
+            }
         }
     }
 
@@ -2038,25 +2197,33 @@ struct ContentView: View {
         if let dest = selected,
            loc.distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude)) < 40 { return }
         let coords = route.coordinates
-        let stride = max(1, coords.count / 400)
         var best = Double.greatestFiniteMagnitude
-        var i = 0
-        while i < coords.count {
-            let c = coords[i]
-            let d = loc.distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
-            if d < best { best = d }
-            i += stride
-        }
-        if let last = coords.last {
-            let d = loc.distance(from: CLLocation(latitude: last.latitude, longitude: last.longitude))
-            if d < best { best = d }
+        for (a, b) in zip(coords, coords.dropFirst()) {
+            best = min(best, distanceFromRoutePoint(loc.coordinate, toSegmentFrom: a, to: b))
         }
         if best > 75 { offRouteCount += 1 } else { offRouteCount = 0 }
         if offRouteCount >= 3 {
             offRouteCount = 0
-            voice.announce("إعادة حساب المسار".loc)
-            Task { await computeRoute() }
+            Task { await computeRoute(announceRecalculation: true) }
         }
+    }
+
+    private func distanceFromRoutePoint(_ point: CLLocationCoordinate2D,
+                                        toSegmentFrom a: CLLocationCoordinate2D,
+                                        to b: CLLocationCoordinate2D) -> Double {
+        let scaleY = 111_320.0
+        let scaleX = scaleY * cos(point.latitude * .pi / 180)
+        let ax = (a.longitude - point.longitude) * scaleX
+        let ay = (a.latitude - point.latitude) * scaleY
+        let bx = (b.longitude - point.longitude) * scaleX
+        let by = (b.latitude - point.latitude) * scaleY
+        let dx = bx - ax
+        let dy = by - ay
+        let lengthSquared = dx * dx + dy * dy
+        let fraction = lengthSquared > 0
+            ? min(1, max(0, -(ax * dx + ay * dy) / lengthSquared))
+            : 0
+        return hypot(ax + fraction * dx, ay + fraction * dy)
     }
 
     private func clearRoute() {
@@ -2152,8 +2319,16 @@ extension ContentView {
         let q = GeoService.normalizeArabic(query)
         guard q.count >= 2 else { return [] }
         let candidates = store.places.map { $0.place } + community.allPlaces.map { $0.asPlace() } + historyStore.items
-        var out = candidates.filter { GeoService.normalizeArabic($0.name).contains(q) }
-        out += official.matches(q).filter { o in !out.contains { $0.id == o.id } }
+        var out: [Place] = []
+        for place in candidates {
+            let fields = [place.name, place.address, place.kind ?? ""]
+            guard fields.contains(where: { GeoService.normalizeArabic($0).contains(q) }),
+                  !out.contains(where: { $0.id == place.id }) else { continue }
+            out.append(place)
+        }
+        for place in official.matches(q) where !out.contains(where: { $0.id == place.id }) {
+            out.append(place)
+        }
         return Array(out.prefix(4))
     }
     @ViewBuilder

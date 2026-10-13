@@ -57,18 +57,9 @@ enum MapStyleKind: String, CaseIterable {
     static var maptilerKey: String {
         let entered = (UserDefaults.standard.string(forKey: "wijhati.maptilerKey") ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return entered.isEmpty ? embeddedMaptilerKey : entered
+        return entered
     }
 
-    // Built-in default key (lightly masked), so the MapTiler style
-    // works out of the box; a key entered in Settings overrides it.
-    private static let maskedMaptilerKey = "X/39LNA8ceFS148tpjx6znek8zM="
-    private static var embeddedMaptilerKey: String {
-        guard let data = Data(base64Encoded: maskedMaptilerKey), !data.isEmpty else { return "" }
-        let mask: [UInt8] = [0x3A, 0x91, 0xC4, 0x5D, 0xE2, 0x77, 0x08, 0xB6]
-        let bytes = data.enumerated().map { $0.element ^ mask[$0.offset % mask.count] }
-        return String(bytes: bytes, encoding: .utf8) ?? ""
-    }
     private static var maptilerRemoteURL: URL? {
         let key = maptilerKey
         guard !key.isEmpty else { return nil }
@@ -120,13 +111,17 @@ enum MapStyleKind: String, CaseIterable {
     /// script — in Iraq it is the most-reviewed value, while the secondary
     /// `name:ar` field is often degraded or plain wrong (one Baghdad
     /// ice-cream shop's name:ar literally reads "clinical_pathology").
-    /// Only when `name` has no Arabic letters do we fall back to name:ar.
+    /// Prefer Arabic-script names in `name` (including Sorani), otherwise
+    /// use a non-empty Arabic translation and finally the source name.
     private static func arabicNameExpression() -> [Any] {
         let name: [Any] = ["to-string", ["coalesce", ["get", "name"], ""]]
-        let probes: [[Any]] = ["ا", "ب", "ت", "ج", "ح", "خ", "د", "ر", "ز", "س", "ش", "ص", "ط", "ع", "ف", "ق", "ك", "ل", "م", "ن", "ه", "و", "ي", "ة"]
+        let probes: [[Any]] = ["ا", "ب", "ت", "ج", "ح", "خ", "د", "ر", "ز", "س", "ش", "ص", "ط", "ع", "ف", "ق", "ك", "ل", "م", "ن", "ه", "و", "ي", "ة", "پ", "چ", "ڕ", "ڵ", "ۆ", "ێ", "گ", "ڤ", "ژ", "ە"]
             .map { ["in", $0, name] as [Any] }
-        return ["case", (["any"] as [Any]) + probes, name,
-                ["coalesce", ["get", "name:ar"], name]] as [Any]
+        let hasArabicScript: [Any] = (["any"] as [Any]) + probes
+        let nonEmptyArabicName: [Any] = ["case",
+            ["==", ["coalesce", ["get", "name:ar"], ""], ""], name,
+            ["get", "name:ar"]]
+        return ["case", hasArabicScript, name, nonEmptyArabicName] as [Any]
     }
 
     /// Pastel map (the signature look): positron recoloured soft —
@@ -339,6 +334,7 @@ struct MapBridge: UIViewRepresentable {
     var routeCoords: [CLLocationCoordinate2D]
     var altRouteCoords: [CLLocationCoordinate2D]
     var tripCoords: [CLLocationCoordinate2D]
+    var routeRevision: String
     var styleKind: MapStyleKind
     var show3D: Bool
     var followUser: Bool
@@ -364,8 +360,8 @@ struct MapBridge: UIViewRepresentable {
         map.showsUserLocation = isAppActive
         map.prefetchesTiles = isAppActive && followUser
         map.compassView.isHidden = true
-        map.logoView.isHidden = true
-        map.attributionButton.isHidden = true
+        map.logoView.isHidden = false
+        map.attributionButton.isHidden = false
         let initialCenter = userLocation ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
         map.setCenter(initialCenter, zoomLevel: userLocation == nil ? 11 : 15, animated: false)
         let tap = UITapGestureRecognizer(target: context.coordinator,
@@ -394,6 +390,7 @@ struct MapBridge: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: MLNMapView, coordinator: Coordinator) {
         coordinator.cancelWatchdog()
+        coordinator.cancelResumeFallback()
         NotificationCenter.default.removeObserver(coordinator)
         uiView.delegate = nil
         coordinator.map = nil
@@ -461,6 +458,7 @@ struct MapBridge: UIViewRepresentable {
     final class Coordinator: NSObject, MLNMapViewDelegate {
         var parent: MapBridge
         weak var map: MLNMapView?
+        private var placeByAnnotationID: [ObjectIdentifier: Place] = [:]
         var currentStyle: MapStyleKind
         var requestedStyle: MapStyleKind
         var styleReady = false
@@ -472,6 +470,7 @@ struct MapBridge: UIViewRepresentable {
         var usingFallbackStyle = false
         var was3DOn = false
         var watchdog: DispatchWorkItem?
+        var resumeFallback: DispatchWorkItem?
         private var watchdogToken = UUID()
         private var didEnterBackground = false
         private var resumeScheduled = false
@@ -484,11 +483,17 @@ struct MapBridge: UIViewRepresentable {
             watchdogToken = UUID()
         }
 
+        func cancelResumeFallback() {
+            resumeFallback?.cancel()
+            resumeFallback = nil
+        }
+
         private func noteBackground() {
             if lastReportedAppActive != false { lifecycleGeneration += 1 }
             lastReportedAppActive = false
             didEnterBackground = true
             resumeScheduled = false
+            cancelResumeFallback()
             cancelWatchdog()
         }
 
@@ -497,6 +502,7 @@ struct MapBridge: UIViewRepresentable {
             lastReportedAppActive = false
             didEnterBackground = true
             resumeScheduled = false
+            cancelResumeFallback()
             cancelWatchdog()
         }
 
@@ -559,13 +565,20 @@ struct MapBridge: UIViewRepresentable {
             guard didEnterBackground, !resumeScheduled, map != nil else { return }
             resumeScheduled = true
             let generation = lifecycleGeneration
-            MapHealth.log("رجوع للواجهة: إعادة بناء الستايل")
-            // MapLibre's GL surface can resume with a stale frame while a
-            // non-nil style is still attached. Rebuild the style after the
-            // app is active so tiles, route layers and annotations repaint.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak map] in
-                guard let self else { return }
-                guard self.lifecycleGeneration == generation else { return }
+            guard let map else {
+                resumeScheduled = false
+                return
+            }
+            MapHealth.log("رجوع للواجهة: استعادة إطار الخريطة الحالي")
+            map.setNeedsLayout()
+            map.layoutIfNeeded()
+            map.setNeedsDisplay()
+
+            // Give MapLibre a short chance to resume its existing GL surface.
+            // Only rebuild the style if a complete frame does not arrive.
+            let fallback = DispatchWorkItem { [weak self, weak map] in
+                guard let self, self.lifecycleGeneration == generation,
+                      self.resumeScheduled, self.didEnterBackground else { return }
                 guard UIApplication.shared.applicationState == .active else {
                     self.resumeScheduled = false
                     self.didEnterBackground = true
@@ -575,40 +588,55 @@ struct MapBridge: UIViewRepresentable {
                     self.resumeScheduled = false
                     return
                 }
-                let camera = map.camera
-                map.setNeedsLayout()
-                map.layoutIfNeeded()
-                // Detach the old style first. Reassigning the same style URL
-                // can leave MapLibre's GL surface on a stale white frame after
-                // the app resumes from suspension.
-                map.delegate = nil
-                map.styleURL = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak map] in
-                    guard let self else { return }
-                    guard self.lifecycleGeneration == generation else { return }
-                    guard UIApplication.shared.applicationState == .active else {
-                        self.resumeScheduled = false
-                        self.didEnterBackground = true
-                        return
-                    }
-                    guard let map else {
-                        self.resumeScheduled = false
-                        return
-                    }
-                    self.didEnterBackground = false
-                    self.resumeScheduled = false
-                    self.styleReady = false
-                    self.lastLayerSignature = ""
-                    let restoreStyle = self.usingFallbackStyle ? MapStyleKind.standard : self.requestedStyle
-                    self.currentStyle = restoreStyle
-                    map.delegate = self
-                    map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
-                    map.setCamera(camera, animated: false)
-                    map.setNeedsLayout()
-                    map.setNeedsDisplay()
-                    self.armWatchdog(stage: 0)
-                }
+                self.reloadStyleAfterResume(map, generation: generation)
             }
+            resumeFallback = fallback
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: fallback)
+        }
+
+        private func reloadStyleAfterResume(_ map: MLNMapView, generation: Int) {
+            guard lifecycleGeneration == generation, resumeScheduled, didEnterBackground else { return }
+            cancelResumeFallback()
+            MapHealth.log("رجوع للواجهة: إعادة تحميل النمط بعد تعذر استعادة الإطار")
+            let camera = map.camera
+            map.setNeedsLayout()
+            map.layoutIfNeeded()
+            map.delegate = nil
+            map.styleURL = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak map] in
+                guard let self, self.lifecycleGeneration == generation else { return }
+                guard UIApplication.shared.applicationState == .active else {
+                    self.resumeScheduled = false
+                    self.didEnterBackground = true
+                    return
+                }
+                guard let map else {
+                    self.resumeScheduled = false
+                    return
+                }
+                self.didEnterBackground = false
+                self.resumeScheduled = false
+                self.styleReady = false
+                self.lastLayerSignature = ""
+                let restoreStyle = self.usingFallbackStyle ? MapStyleKind.standard : self.requestedStyle
+                self.currentStyle = restoreStyle
+                map.delegate = self
+                map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
+                map.setCamera(camera, animated: false)
+                map.setNeedsLayout()
+                map.setNeedsDisplay()
+                self.armWatchdog(stage: 0)
+            }
+        }
+
+        func mapView(_ mapView: MLNMapView, didFinishRenderingFrame fullyRendered: Bool) {
+            guard fullyRendered, resumeScheduled, didEnterBackground,
+                  styleReady, mapView.style != nil,
+                  UIApplication.shared.applicationState == .active else { return }
+            cancelResumeFallback()
+            resumeScheduled = false
+            didEnterBackground = false
+            MapHealth.log("رجوع للواجهة: الخريطة استأنفت إطارًا كاملًا")
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -634,7 +662,7 @@ struct MapBridge: UIViewRepresentable {
             }
             armWatchdog(stage: 2)
         }
-        private var shownPinIDs: [String] = []
+        private var shownPins: [Place] = []
 
         init(_ parent: MapBridge) {
             self.parent = parent
@@ -658,27 +686,16 @@ struct MapBridge: UIViewRepresentable {
         func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: MLNAnnotation) -> Bool { false }
 
         func mapView(_ mapView: MLNMapView, didSelect annotation: MLNAnnotation) {
-            guard let ann = annotation as? MLNPointAnnotation else { return }
-            if let place = parent.pins.first(where: {
-                abs($0.latitude - ann.coordinate.latitude) < 0.00005 &&
-                abs($0.longitude - ann.coordinate.longitude) < 0.00005
-            }) {
+            if let place = placeByAnnotationID[ObjectIdentifier(annotation as AnyObject)] {
                 parent.onSelectPin(place)
             }
             mapView.deselectAnnotation(annotation, animated: false)
         }
 
         func mapView(_ mapView: MLNMapView, imageFor annotation: MLNAnnotation) -> MLNAnnotationImage? {
-            let isCommunity = parent.pins.contains {
-                $0.id.hasPrefix("community-") &&
-                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
-                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
-            }
-            let isOfficial = parent.pins.contains {
-                $0.id.hasPrefix("official-") &&
-                abs($0.latitude - annotation.coordinate.latitude) < 0.00005 &&
-                abs($0.longitude - annotation.coordinate.longitude) < 0.00005
-            }
+            guard let place = placeByAnnotationID[ObjectIdentifier(annotation as AnyObject)] else { return nil }
+            let isCommunity = place.id.hasPrefix("community-")
+            let isOfficial = place.id.hasPrefix("official-")
             let id = isCommunity ? "wijhati-community-pin" : (isOfficial ? "wijhati-official-pin" : "wijhati-pin")
             if let existing = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return existing }
             let img = isCommunity ? Self.communityPinImage() : (isOfficial ? Self.officialPinImage() : Self.pinImage())
@@ -744,15 +761,15 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Annotations
         func refreshAnnotations() {
-            guard let map else { return }
-            let ids = parent.pins.map { $0.id }
-            if ids == shownPinIDs { return }
-            shownPinIDs = ids
+            guard let map, parent.pins != shownPins else { return }
+            shownPins = parent.pins
             if let existing = map.annotations { map.removeAnnotations(existing) }
+            placeByAnnotationID.removeAll(keepingCapacity: true)
             let anns = parent.pins.map { p -> MLNPointAnnotation in
                 let a = MLNPointAnnotation()
                 a.coordinate = p.coordinate
                 a.title = p.name
+                placeByAnnotationID[ObjectIdentifier(a)] = p
                 return a
             }
             if !anns.isEmpty { map.addAnnotations(anns) }
@@ -760,7 +777,7 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Layers
         func refreshLayers(style: MLNStyle) {
-            let signature = "\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)"
+            let signature = "\(parent.routeRevision)-\(parent.routeCoords.count)-\(parent.altRouteCoords.count)-\(parent.tripCoords.count)-\(parent.show3D)-\(currentStyle.rawValue)-\(parent.routeCoords.first?.latitude ?? 0)-\(parent.routeCoords.first?.longitude ?? 0)-\(parent.routeCoords.last?.latitude ?? 0)-\(parent.altRouteCoords.first?.latitude ?? 0)-\(parent.altRouteCoords.last?.longitude ?? 0)-\(parent.tripCoords.last?.latitude ?? 0)"
             if signature == lastLayerSignature { return }
             lastLayerSignature = signature
             updatePOILabels(style: style)
