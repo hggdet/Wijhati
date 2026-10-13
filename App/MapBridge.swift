@@ -167,20 +167,20 @@ struct MapBridge: UIViewRepresentable {
 
         if let request = bearingRequest, context.coordinator.lastBearingID != request.id {
             context.coordinator.lastBearingID = request.id
-            var camera = map.camera
+            let camera = map.camera
             camera.heading = request.degrees
             map.setCamera(camera, animated: true)
         }
         if let request = centerRequest, context.coordinator.lastCenterID != request.id {
             context.coordinator.lastCenterID = request.id
-            var camera = Self.camera(center: request.coordinate, zoom: request.zoom,
+            let camera = Self.camera(center: request.coordinate, zoom: request.zoom,
                                      pitch: map.camera.pitch, heading: map.camera.heading, in: map)
             camera.pitch = map.camera.pitch
             map.setCamera(camera, animated: true)
         }
         if context.coordinator.lastNorthReset != northReset {
             context.coordinator.lastNorthReset = northReset
-            var camera = map.camera
+            let camera = map.camera
             camera.heading = 0
             camera.pitch = 0
             map.setCamera(camera, animated: true)
@@ -256,7 +256,7 @@ struct MapBridge: UIViewRepresentable {
                                                                          emphasisStyle: emphasis)
             }
             if !oldKey.isEmpty, oldKey != key {
-                var camera = map.camera
+                let camera = map.camera
                 if !parent.show3D {
                     camera.pitch = 0
                 } else if !oldKey.hasSuffix("true"), Self.zoom(for: map) >= 13 {
@@ -283,7 +283,7 @@ struct MapBridge: UIViewRepresentable {
             }
         }
 
-        private func cancelResumeFallback() {
+        fileprivate func cancelResumeFallback() {
             resumeFallback?.cancel()
             resumeFallback = nil
         }
@@ -346,7 +346,7 @@ struct MapBridge: UIViewRepresentable {
             let changed = lastAutoTiltZoom.map { abs($0 - zoom) > 0.12 } ?? false
             lastAutoTiltZoom = zoom
             guard changed, parent.show3D, zoom >= 15, mapView.camera.pitch < 50 else { return }
-            var camera = mapView.camera
+            let camera = mapView.camera
             camera.pitch = 52
             mapView.setCamera(camera, animated: true)
         }
