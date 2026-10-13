@@ -69,6 +69,9 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         let status = manager.authorizationStatus
         if authorization != status { authorization = status }
         let isAuthorized = status == .authorizedWhenInUse || status == .authorizedAlways
+        let backgroundLocationNeeded = isAuthorized && (navigationActive || recording)
+        manager.allowsBackgroundLocationUpdates = backgroundLocationNeeded
+        manager.showsBackgroundLocationIndicator = backgroundLocationNeeded
 
         guard isAuthorized else {
             stopLocationUpdatesIfNeeded()

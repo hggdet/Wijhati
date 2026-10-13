@@ -75,14 +75,16 @@ struct ContentView: View {
     @State private var searchGeneration = 0
     @State private var loadingRoute = false
 
-    @State private var styleKind: MapStyleKind = .cinematic
+    @State private var styleKind: MapStyleKind = .standard
     @State private var followUser = false
     @State private var centerRequest: CenterRequest?
     @State private var mapRebuildGeneration = 0
     @State private var mapRecoveryStyle: MapStyleKind?
+    @State private var pendingMapCameraRestore: MapCameraSnapshot?
 
     @State private var showSaved = false
     @State private var showSettings = false
+    @State private var showMapAttribution = false
     @AppStorage("wijhati.show3D") private var show3D = true
     @State private var placeWeather: GeoService.WeatherNow?
     @State private var placeDetails: GeoService.PlaceDetails?
@@ -151,15 +153,16 @@ struct ContentView: View {
         )
     }
 
-    private func syncStyleToScheme() {
+    private func syncStyleToScheme(initial: Bool = false) {
         if effectiveDark {
-            if styleKind != .dark && styleKind != .ofmDark && styleKind != .cinematic {
+            if !initial && !autoDark && styleKind != .dark && styleKind != .ofmDark && styleKind != .cinematic {
                 lastLightStyle = styleKind.rawValue
             }
             styleKind = .cinematic
             autoDark = true
-        } else if autoDark {
-            styleKind = MapStyleKind(rawValue: lastLightStyle) ?? .pastel
+        } else if initial || autoDark {
+            let savedStyle = MapStyleKind(rawValue: lastLightStyle) ?? .standard
+            styleKind = savedStyle == .cinematic ? .standard : savedStyle
             autoDark = false
         }
     }
@@ -213,8 +216,11 @@ struct ContentView: View {
                 onSelectPin: { place in select(place) },
                 onLongPress: { coordinate in handleLongPress(coordinate) },
                 onMapTap: { closeMapSearch() },
-                onRecoveryExhausted: { recoveredStyle in
+                restoreCamera: pendingMapCameraRestore,
+                onCameraRestoreConsumed: { pendingMapCameraRestore = nil },
+                onRecoveryExhausted: { recoveredStyle, camera in
                     mapRecoveryStyle = recoveredStyle
+                    pendingMapCameraRestore = camera
                     mapRebuildGeneration += 1
                 }
             )
@@ -268,6 +274,23 @@ struct ContentView: View {
             }
             DynamicIslandNoticeOverlay()
                 .zIndex(30)
+
+            Button { showMapAttribution = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "map")
+                    Text((mapRecoveryStyle ?? styleKind) == .satellite ? "© Esri" : "© OpenStreetMap")
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(adaptiveInk)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("إسناد الخريطة".loc)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .padding(.trailing, 13)
+            .padding(.bottom, 12)
         }
     }
 
@@ -279,7 +302,7 @@ struct ContentView: View {
             homePlace = Self.loadQuickPlace("wijhati.homePlace")
             workPlace = Self.loadQuickPlace("wijhati.workPlace")
             syncWidgetPlaces()
-            syncStyleToScheme()
+            syncStyleToScheme(initial: true)
             if let loc = locationService.location {
                 centerAtStartupIfNeeded(loc, resolvesInitialFix: false)
             }
@@ -362,6 +385,7 @@ struct ContentView: View {
             mapRecoveryStyle = nil
             // A manual style pick always wins over the automatic night sync.
             if effectiveDark, newKind != .dark, newKind != .ofmDark { autoDark = false }
+            if !effectiveDark { lastLightStyle = newKind.rawValue }
         }
     }
 
@@ -405,6 +429,7 @@ struct ContentView: View {
             await community.refresh()
         }
         .sheet(isPresented: $showSettings) { settingsSheet }
+        .sheet(isPresented: $showMapAttribution) { mapAttributionSheet }
         .sheet(item: $shareItem) { payload in
             ShareSheet(text: payload.text)
         }
@@ -532,7 +557,7 @@ struct ContentView: View {
             .accessibilityLabel("خيارات التطبيق".loc)
         }
         .frame(maxWidth: .infinity)
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
     }
 
     private func openMapSearch(focus: Bool = true) {
@@ -592,7 +617,7 @@ struct ContentView: View {
             if !showSearch { Spacer(minLength: 0) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .environment(\.layoutDirection, .leftToRight)
+        .environment(\.layoutDirection, language == "en" ? .leftToRight : .rightToLeft)
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: showSearch)
     }
 
@@ -1629,11 +1654,9 @@ struct ContentView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.0").foregroundStyle(adaptiveSecondaryInk) }
+                HStack { Text("الإصدار".loc); Spacer(); Text("1.64.1").foregroundStyle(adaptiveSecondaryInk) }
                 HStack { Text("المطوّر".loc); Spacer(); Text("عبدالباسط خضير".loc).foregroundStyle(adaptiveSecondaryInk) }
                 Text("بيانات الخريطة © مساهمو OpenStreetMap • إسناد مزودي البلاطات حسب النمط")
-                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
-                Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
                 Text("حدود فلترة الأماكن الرسمية من Natural Earth (بيانات مفتوحة)")
                     .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
@@ -1648,6 +1671,40 @@ struct ContentView: View {
         }
         .navigationTitle("حول وجهتي".loc)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var mapAttributionText: String {
+        switch mapRecoveryStyle ?? styleKind {
+        case .satellite: return "Imagery © Esri"
+        case .cartoon: return "© OpenStreetMap contributors · CyclOSM"
+        case .dark: return "© OpenStreetMap contributors · Versatiles"
+        default: return "© OpenStreetMap contributors · OpenFreeMap"
+        }
+    }
+
+    private var mapAttributionSheet: some View {
+        NavigationStack {
+            List {
+                Section("بيانات الخريطة".loc) {
+                    Text(mapAttributionText)
+                    Link((mapRecoveryStyle ?? styleKind) == .satellite ? "Esri Terms" : "حقوق OpenStreetMap".loc,
+                         destination: (mapRecoveryStyle ?? styleKind) == .satellite
+                            ? URL(string: "https://www.esri.com/en-us/legal/terms/full-master-agreement")!
+                            : URL(string: "https://www.openstreetmap.org/copyright")!)
+                    Text("MapLibre")
+                        .font(.caption)
+                        .foregroundStyle(adaptiveSecondaryInk)
+                }
+            }
+            .navigationTitle("إسناد الخريطة".loc)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("إغلاق".loc) { showMapAttribution = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Offline page
@@ -1768,83 +1825,33 @@ struct ContentView: View {
     private var voicePickerPage: some View {
         Form {
             Section {
-                ForEach(CloudVoice.voices, id: \.name) { option in
-                    Button {
-                        azureVoice = option.name
-                        if CloudVoice.configured {
-                            CloudVoice.shared.preview(voiceName: option.name)
-                        } else {
-                            voice.announce("أضف مفتاح Azure لتجربة الصوت السحابي".loc)
-                        }
-                    } label: {
-                        HStack {
-                            Text(option.label)
-                            Spacer()
-                            if azureVoice == option.name {
-                                Image(systemName: "checkmark").foregroundStyle(.blue)
-                            }
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                }
-            } header: {
-                Text("أصوات عراقية حقيقية (سحابية)".loc)
-            } footer: {
-                Text("الأصوات العراقية السحابية اختيارية وتحتاج مفتاحك من Azure؛ من دون مفتاح يعمل صوت الجهاز محلياً. مفتاحك يُحفظ في Keychain على هذا الجهاز.".loc)
-                    .font(.caption2)
-            }
-            Section("إعداد الصوت السحابي".loc) {
-                SecureField("مفتاح Azure".loc, text: $azureKeyInput)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .privacySensitive()
-                TextField("المنطقة (Region)".loc, text: $azureRegion)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                HStack {
-                    Button("حفظ".loc) {
-                        let saved = CloudVoice.storeKey(azureKeyInput)
-                        azureKeyInput = ""
-                        azureKeyStatus = saved ? "تم حفظ المفتاح بأمان على هذا الجهاز".loc : "تعذر حفظ المفتاح؛ حاول مرة أخرى".loc
-                    }
-                    .disabled(azureKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if CloudVoice.configured {
-                        Button("حذف".loc, role: .destructive) {
-                            _ = CloudVoice.storeKey("")
-                            azureKeyInput = ""
-                            azureKeyStatus = "تم حذف المفتاح؛ سيعمل صوت الجهاز".loc
-                        }
-                    }
-                }
-                if !azureKeyStatus.isEmpty {
-                    Text(azureKeyStatus).font(.caption).foregroundStyle(adaptiveSecondaryInk)
-                }
-                Text(CloudVoice.configured
-                     ? "المفتاح محفوظ؛ جرّب معاينة الصوت العراقي أعلاه".loc
-                     : (CloudVoice.key.isEmpty
-                        ? "لا يوجد مفتاح محفوظ؛ الملاحة الصوتية تستخدم صوت الجهاز".loc
-                        : "منطقة Azure غير صالحة؛ تحقق من قيمة Region".loc))
-                    .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                Text("صوت الآيفون هو الافتراضي ويعمل دون مفتاح أو إعداد إضافي.".loc)
+                    .font(.callout).foregroundStyle(adaptiveSecondaryInk)
             }
             Section("صوت الجهاز".loc) {
-                ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
-                    Button {
-                        voiceID = info.id
-                        voice.preview(voiceID: info.id)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(info.name)
-                                Text("\(info.language) • \(qualityLabel(info.quality))")
-                                    .font(.caption).foregroundStyle(adaptiveSecondaryInk)
-                            }
-                            Spacer()
-                            if voiceID == info.id {
-                                Image(systemName: "checkmark").foregroundStyle(.blue)
+                if VoiceGuide.arabicVoiceInfos.isEmpty {
+                    Text("لا توجد أصوات عربية مثبتة؛ نزّل صوتاً عربياً من إعدادات الآيفون.".loc)
+                        .font(.caption).foregroundStyle(adaptiveSecondaryInk)
+                } else {
+                    ForEach(VoiceGuide.arabicVoiceInfos, id: \.id) { info in
+                        Button {
+                            voiceID = info.id
+                            voice.preview(voiceID: info.id)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(info.name)
+                                    Text("\(info.language) • \(qualityLabel(info.quality))")
+                                        .font(.caption).foregroundStyle(adaptiveSecondaryInk)
+                                }
+                                Spacer()
+                                if voiceID == info.id {
+                                    Image(systemName: "checkmark").foregroundStyle(.blue)
+                                }
                             }
                         }
+                        .foregroundStyle(.primary)
                     }
-                    .foregroundStyle(.primary)
                 }
             }
             Section("أسلوب الصوت".loc) {
@@ -1863,6 +1870,65 @@ struct ContentView: View {
                     }
                     .foregroundStyle(.primary)
                 }
+            }
+            Section {
+                DisclosureGroup("أصوات سحابية اختيارية".loc) {
+                    ForEach(CloudVoice.voices, id: \.name) { option in
+                        Button {
+                            azureVoice = option.name
+                            if CloudVoice.configured {
+                                CloudVoice.shared.preview(voiceName: option.name)
+                            } else {
+                                azureKeyStatus = "أضف مفتاح Azure فقط إذا أردت تجربة الصوت السحابي.".loc
+                            }
+                        } label: {
+                            HStack {
+                                Text(option.label)
+                                Spacer()
+                                if azureVoice == option.name {
+                                    Image(systemName: "checkmark").foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    SecureField("مفتاح Azure".loc, text: $azureKeyInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .privacySensitive()
+                    TextField("المنطقة (Region)".loc, text: $azureRegion)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    HStack {
+                        Button("حفظ".loc) {
+                            let saved = CloudVoice.storeKey(azureKeyInput)
+                            azureKeyInput = ""
+                            azureKeyStatus = saved ? "تم حفظ المفتاح بأمان على هذا الجهاز".loc : "تعذر حفظ المفتاح؛ حاول مرة أخرى".loc
+                        }
+                        .disabled(azureKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if CloudVoice.configured {
+                            Button("حذف".loc, role: .destructive) {
+                                _ = CloudVoice.storeKey("")
+                                azureKeyInput = ""
+                                azureKeyStatus = "تم حذف المفتاح؛ سيعمل صوت الجهاز".loc
+                            }
+                        }
+                    }
+                    if !azureKeyStatus.isEmpty {
+                        Text(azureKeyStatus).font(.caption).foregroundStyle(adaptiveSecondaryInk)
+                    }
+                    Text(CloudVoice.configured
+                         ? "المفتاح محفوظ؛ جرّب معاينة الصوت العراقي أعلاه".loc
+                         : (CloudVoice.key.isEmpty
+                            ? "لا يوجد مفتاح محفوظ؛ الملاحة الصوتية تستخدم صوت الجهاز".loc
+                            : "منطقة Azure غير صالحة؛ تحقق من قيمة Region".loc))
+                        .font(.caption2).foregroundStyle(adaptiveSecondaryInk)
+                }
+            } header: {
+                Text("صوت إضافي".loc)
+            } footer: {
+                Text("الأصوات العراقية السحابية اختيارية وتحتاج مفتاحك من Azure؛ من دون مفتاح يعمل صوت الجهاز محلياً. مفتاحك يُحفظ في Keychain على هذا الجهاز.".loc)
+                    .font(.caption2)
             }
             Section {
                 Text("لأصوات عربية إضافية بجودة أعلى، حمّلها من إعدادات الآيفون ← إمكانية الوصول ← المحتوى المنطوق ← الأصوات ← العربية، وستظهر هنا تلقائياً.".loc)
@@ -1920,7 +1986,12 @@ struct ContentView: View {
         UIView.appearance().semanticContentAttribute = attr
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }
-            for window in windowScene.windows { window.semanticContentAttribute = attr }
+            for window in windowScene.windows {
+                window.semanticContentAttribute = attr
+                window.rootViewController?.view.semanticContentAttribute = attr
+                window.rootViewController?.view.setNeedsLayout()
+                window.rootViewController?.view.layoutIfNeeded()
+            }
         }
     }
 

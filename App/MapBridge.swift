@@ -232,6 +232,21 @@ struct CenterRequest: Equatable {
     static func == (lhs: CenterRequest, rhs: CenterRequest) -> Bool { lhs.id == rhs.id }
 }
 
+struct MapCameraSnapshot {
+    var center: CLLocationCoordinate2D
+    var zoom: Double
+    var heading: Double
+    var pitch: CGFloat
+
+    init(map: MLNMapView) {
+        let camera = map.camera
+        center = camera.centerCoordinate
+        zoom = map.zoomLevel
+        heading = camera.heading
+        pitch = camera.pitch
+    }
+}
+
 struct MapBridge: UIViewRepresentable {
     var pins: [Place]
     var routeCoords: [CLLocationCoordinate2D]
@@ -249,14 +264,20 @@ struct MapBridge: UIViewRepresentable {
     var onSelectPin: (Place) -> Void
     var onLongPress: (CLLocationCoordinate2D) -> Void
     var onMapTap: () -> Void
-    var onRecoveryExhausted: (MapStyleKind) -> Void
+    var restoreCamera: MapCameraSnapshot?
+    var onCameraRestoreConsumed: () -> Void
+    var onRecoveryExhausted: (MapStyleKind, MapCameraSnapshot) -> Void
+
+    private var isNightStyle: Bool {
+        styleKind == .dark || styleKind == .ofmDark || styleKind == .cinematic
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView(frame: .zero, styleURL: styleKind.url ?? MapStyleKind.standard.url)
         map.delegate = context.coordinator
-        map.backgroundColor = UIColor.systemBackground
+        map.backgroundColor = isNightStyle ? UIColor(red: 0.035, green: 0.055, blue: 0.11, alpha: 1) : UIColor.systemBackground
         map.isOpaque = false
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appEnteredBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.appWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -264,11 +285,19 @@ struct MapBridge: UIViewRepresentable {
         map.showsUserLocation = isAppActive
         map.prefetchesTiles = isAppActive && followUser
         map.compassView.isHidden = true
-        map.logoView.isHidden = false
-        map.attributionButton.isHidden = false
-        let initialCenter = userLocation ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
-        let initialZoom: Double = userLocation == nil ? 11 : (show3D && !styleKind.isRaster ? 16 : 13)
-        map.setCenter(initialCenter, zoomLevel: initialZoom, animated: false)
+        map.logoView.isHidden = true
+        map.attributionButton.isHidden = true
+        if let restoreCamera {
+            map.setCenter(restoreCamera.center, zoomLevel: min(22, max(0, restoreCamera.zoom)), animated: false)
+            var camera = map.camera
+            camera.heading = restoreCamera.heading
+            camera.pitch = restoreCamera.pitch
+            map.setCamera(camera, animated: false)
+        } else {
+            let initialCenter = userLocation ?? CLLocationCoordinate2D(latitude: 33.3152, longitude: 44.3661)
+            let initialZoom: Double = userLocation == nil ? 11 : (show3D && !styleKind.isRaster ? 16 : 13)
+            map.setCenter(initialCenter, zoomLevel: initialZoom, animated: false)
+        }
         let tap = UITapGestureRecognizer(target: context.coordinator,
                                          action: #selector(Coordinator.handleTap(_:)))
         tap.cancelsTouchesInView = false
@@ -278,6 +307,11 @@ struct MapBridge: UIViewRepresentable {
         longPress.minimumPressDuration = 0.45
         map.addGestureRecognizer(longPress)
         context.coordinator.map = map
+        if restoreCamera != nil {
+            DispatchQueue.main.async {
+                context.coordinator.parent.onCameraRestoreConsumed()
+            }
+        }
         // The Arabic-patched copy of the current style may finish
         // downloading just after launch; if so, swap to it once so
         // labels turn Arabic without waiting for the next launch.
@@ -303,6 +337,9 @@ struct MapBridge: UIViewRepresentable {
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.parent = self
+        map.logoView.isHidden = true
+        map.attributionButton.isHidden = true
+        map.backgroundColor = isNightStyle ? UIColor(red: 0.035, green: 0.055, blue: 0.11, alpha: 1) : UIColor.systemBackground
         if context.coordinator.requestedStyle != styleKind {
             context.coordinator.requestedStyle = styleKind
             context.coordinator.usingFallbackStyle = false
@@ -490,8 +527,9 @@ struct MapBridge: UIViewRepresentable {
             map.layoutIfNeeded()
             map.setNeedsDisplay()
 
-            // Give MapLibre a short chance to resume its existing GL surface.
-            // Only rebuild the style if a complete frame does not arrive.
+            // Reuse a healthy GL surface, but do not leave a blank map waiting
+            // through a style reload. Recreate the view quickly if no complete
+            // frame arrives, preserving the user's exact camera position.
             let fallback = DispatchWorkItem { [weak self, weak map] in
                 guard let self, self.lifecycleGeneration == generation,
                       self.resumeScheduled, self.didEnterBackground else { return }
@@ -504,46 +542,20 @@ struct MapBridge: UIViewRepresentable {
                     self.resumeScheduled = false
                     return
                 }
-                self.reloadStyleAfterResume(map, generation: generation)
+                let restoreStyle = self.usingFallbackStyle ? MapStyleKind.standard : self.requestedStyle
+                let camera = MapCameraSnapshot(map: map)
+                self.resumeFallback = nil
+                self.resumeScheduled = false
+                self.didEnterBackground = false
+                MapHealth.log("رجوع للواجهة: إعادة إنشاء سطح الخريطة بعد غياب الإطار")
+                self.parent.onRecoveryExhausted(restoreStyle, camera)
             }
             resumeFallback = fallback
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: fallback)
-        }
-
-        private func reloadStyleAfterResume(_ map: MLNMapView, generation: Int) {
-            guard lifecycleGeneration == generation, resumeScheduled, didEnterBackground else { return }
-            cancelResumeFallback()
-            MapHealth.log("رجوع للواجهة: إعادة تحميل النمط بعد تعذر استعادة الإطار")
-            let camera = map.camera
-            let restoreStyle = usingFallbackStyle ? MapStyleKind.standard : requestedStyle
-            currentStyle = restoreStyle
-            styleReady = false
-            lastLayerSignature = ""
-            map.setNeedsLayout()
-            map.layoutIfNeeded()
-            map.styleURL = restoreStyle.url ?? MapStyleKind.standard.url
-            map.setCamera(camera, animated: false)
-            map.setNeedsLayout()
-            map.setNeedsDisplay()
-            armWatchdog(stage: 0)
-
-            // If style reload still yields no frame, recreate the representable.
-            // Keep the current screen until that last-resort recovery is needed.
-            let rebuild = DispatchWorkItem { [weak self] in
-                guard let self, self.lifecycleGeneration == generation,
-                      self.resumeScheduled, self.didEnterBackground,
-                      UIApplication.shared.applicationState == .active else { return }
-                self.resumeFallback = nil
-                MapHealth.log("رجوع للواجهة: إعادة إنشاء الخريطة بعد فشل الرسم")
-                self.resumeScheduled = false
-                self.parent.onRecoveryExhausted(self.usingFallbackStyle ? .standard : self.currentStyle)
-            }
-            resumeFallback = rebuild
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: rebuild)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.35, execute: fallback)
         }
 
         func mapView(_ mapView: MLNMapView, didFinishRenderingFrame fullyRendered: Bool) {
-            guard resumeScheduled, didEnterBackground,
+            guard fullyRendered, resumeScheduled, didEnterBackground,
                   styleReady, mapView.style != nil,
                   UIApplication.shared.applicationState == .active else { return }
             cancelResumeFallback()
@@ -585,6 +597,8 @@ struct MapBridge: UIViewRepresentable {
 
         // MARK: Delegate
         func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+            mapView.logoView.isHidden = true
+            mapView.attributionButton.isHidden = true
             styleReady = true
             if currentStyle == requestedStyle {
                 usingFallbackStyle = false

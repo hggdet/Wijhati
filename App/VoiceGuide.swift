@@ -153,6 +153,7 @@ final class VoiceGuide: ObservableObject {
     func preview(voiceID: String) {
         synth.stopSpeaking(at: .immediate)
         guard let voice = AVSpeechSynthesisVoice(identifier: voiceID) else { return }
+        activateSpeechAudioSession()
         let style = Self.selectedStyle
         let utterance = AVSpeechUtterance(string: "صوت المرشد")
         utterance.voice = voice
@@ -165,6 +166,7 @@ final class VoiceGuide: ObservableObject {
     /// Speak a short sample in the given style (style-picker preview).
     func previewStyle(_ style: VoiceStyle) {
         synth.stopSpeaking(at: .immediate)
+        activateSpeechAudioSession()
         let utterance = AVSpeechUtterance(string: "صوت المرشد")
         utterance.voice = Self.selectedVoice
         utterance.rate = style.rate
@@ -219,7 +221,20 @@ final class VoiceGuide: ObservableObject {
         }
     }
 
+    private func activateSpeechAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if session.category != .playback || session.mode != .spokenAudio {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            }
+            try session.setActive(true)
+        } catch {
+            MapHealth.log("تعذر تجهيز صوت المرشد: \(error.localizedDescription.prefix(60))")
+        }
+    }
+
     private func speakDevice(_ text: String) {
+        activateSpeechAudioSession()
         let style = Self.selectedStyle
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.selectedVoice
